@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -50,11 +51,34 @@ VARIANTS = {
     "safari-mse-aac": ("domofon_sub", "mse"),
     # the same fixed stream must still give WebRTC players their PCMA sound
     "fixed-webrtc": ("domofon_sub", "webrtc"),
+    # iPad away from home: WebRTC only connects once the page used the mic
+    # (Safari hides local candidates until then). Tapping 🔊 must switch the
+    # player from MSE to RTC.
+    "ipad-away": ("domofon_sub", "webrtc,mse,hls,mjpeg"),
+    # same, but the app already has the mic permission: switch without a tap
+    "ipad-granted": ("domofon_sub", "webrtc,mse,hls,mjpeg"),
 }
+if os.environ.get("ONLY"):
+    VARIANTS = {k: v for k, v in VARIANTS.items() if k in os.environ["ONLY"].split(",")}
 
-# pretend to be Safari on the "safari-*" views: no FLAC in MediaSource
+# pretend to be Safari on the "safari-*" / "ipad-*" views: no FLAC in MediaSource
 SAFARI_LIKE = """
-if (location.pathname.includes('safari')) {
+if (location.pathname.includes('ipad')) {
+  // no usable ICE candidates until getUserMedia was used on the page
+  let micUsed = false;
+  const gum = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+  navigator.mediaDevices.getUserMedia = (c) => { micUsed = true; return gum(c); };
+  const RPC = window.RTCPeerConnection;
+  window.RTCPeerConnection = function (cfg) {
+    return new RPC(micUsed ? cfg : Object.assign({}, cfg, { iceTransportPolicy: 'relay', iceServers: [] }));
+  };
+  window.RTCPeerConnection.prototype = RPC.prototype;
+  if (location.pathname.includes('ipad-away')) {
+    // the mic was never allowed on this page yet
+    navigator.permissions.query = async () => ({ state: 'prompt' });
+  }
+}
+if (location.pathname.includes('safari') || location.pathname.includes('ipad')) {
   for (const MS of [window.MediaSource, window.ManagedMediaSource]) {
     if (!MS) continue;
     const orig = MS.isTypeSupported.bind(MS);
@@ -187,15 +211,26 @@ async def check(cdp: Cdp, name: str) -> dict:
     # let go2rtc connect and the player settle on WebRTC or MSE
     await asyncio.sleep(8)
     before = await cdp.js(MEASURE + '(false)')
+    before["webrtc_unlock"] = await cdp.js("window.__vtoCard()._rtcUnlock || null")
     rect = await cdp.js(
         "(() => { const r = window.__vtoCard().shadowRoot.getElementById('listen').getBoundingClientRect();"
         " return {x: r.x + r.width/2, y: r.y + r.height/2}; })()"
     )
     for kind in ("mousePressed", "mouseReleased"):
         await cdp.call("Input.dispatchMouseEvent", type=kind, x=rect["x"], y=rect["y"], button="left", clickCount=1)
-    await asyncio.sleep(2)
+    await asyncio.sleep(6 if name.startswith("ipad") else 2)
+    taps = 1
+    status = await cdp.js("window.__vtoCard().shadowRoot.getElementById('stxt').textContent")
+    if "once more" in status or "jeszcze raz" in status:
+        # the card asks for a second tap after switching to WebRTC
+        for kind in ("mousePressed", "mouseReleased"):
+            await cdp.call("Input.dispatchMouseEvent", type=kind, x=rect["x"], y=rect["y"], button="left", clickCount=1)
+        taps = 2
+        await asyncio.sleep(2.5)
     after = await cdp.js(MEASURE + '(true)')
+    after["taps"] = taps
     diag = await cdp.js("window.__vtoCard().shadowRoot.getElementById('stxt').textContent")
+    after["webrtc_unlock"] = await cdp.js("window.__vtoCard()._rtcUnlock || null")
     shot = await cdp.call("Page.captureScreenshot", format="png")
     Path(f"/tmp/preview_{name}.png").write_bytes(base64.b64decode(shot["data"]))
     audible = (
@@ -213,7 +248,10 @@ async def run() -> int:
             "google-chrome", "--headless=new", "--no-sandbox", "--disable-gpu",
             f"--remote-debugging-port={PORT}", "--user-data-dir=/tmp/chrome-prev",
             "--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream",
-            "--allow-loopback-in-peer-connection", "--disable-features=WebRtcHideLocalIpsWithMdns", "--window-size=900,800", "about:blank",
+            "--allow-loopback-in-peer-connection",
+            # PRIVATE_IPS=1: keep Chrome's default (local IPs hidden from WebRTC
+            # until the mic is allowed), like Safari on an iPad
+            *([] if os.environ.get("PRIVATE_IPS") else ["--disable-features=WebRtcHideLocalIpsWithMdns"]), "--window-size=900,800", "about:blank",
         ],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
@@ -242,7 +280,7 @@ async def run() -> int:
                 if cdp.console:
                     print("browser console:", *cdp.console[-15:], sep="\n  ")
                 cdp.reader.cancel()
-                return 0 if results["pcma"]["audible"] else 1
+                return 0 if all(r["audible"] for n, r in results.items() if n != "safari-mse") else 1
     finally:
         chrome.terminate()
         chrome.wait()

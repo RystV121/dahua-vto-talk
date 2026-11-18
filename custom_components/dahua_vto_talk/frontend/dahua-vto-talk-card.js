@@ -9,6 +9,7 @@
  *
  * type: custom:dahua-vto-talk-card
  * camera_entity: camera.domofon_main      # optional
+ * prefer_webrtc: true                     # default; see _preferWebRtc
  * camera_card:                            # optional, any card instead of the
  *   type: custom:webrtc-camera            # built-in camera view (e.g. a light
  *   url: domofon_sub                      # sub stream via go2rtc / WebRTC)
@@ -18,7 +19,7 @@
  * entry_id: ...                           # only with several door stations
  */
 
-const CARD_VERSION = "0.1.7";
+const CARD_VERSION = "0.1.8";
 
 const WORKLET_SOURCE = `
 class VtoPcmSender extends AudioWorkletProcessor {
@@ -119,6 +120,7 @@ const TEXT = {
     playback: "▶ Odsłuchaj, co poszło do furtki",
     no_recording: "Brak nagrania (zaktualizuj integrację i zrestartuj HA)",
     diag_no_video: "🔊 nie znalazłem odtwarzacza wideo w podglądzie",
+    tap_again: "Podgląd przełączony na WebRTC – stuknij 🔊 jeszcze raz, żeby włączyć dźwięk",
     diag_audio: "ścieżka dźwięku",
     diag_muted: "wyciszony",
     diag_volume: "głośność",
@@ -148,6 +150,7 @@ const TEXT = {
     playback: "▶ Play back what went to the gate",
     no_recording: "No recording (update the integration and restart HA)",
     diag_no_video: "🔊 no video player found in the preview",
+    tap_again: "Preview switched to WebRTC – tap 🔊 once more to turn the sound on",
     diag_audio: "audio track",
     diag_muted: "muted",
     diag_volume: "volume",
@@ -282,7 +285,12 @@ class DahuaVtoTalkCard extends HTMLElement {
     if (listen) {
       listen.addEventListener("click", () => {
         this._setListening(!this._listening);
-        if (this._listening) setTimeout(() => this._checkPreviewAudio(), 1500);
+        if (this._listening) {
+          this._preferWebRtc("tap").then(async (switched) => {
+            if (switched && (await this._afterSwitch())) return;
+            setTimeout(() => this._checkPreviewAudio(), 1500);
+          });
+        }
       });
     }
     this.shadowRoot.getElementById("playback").addEventListener("click", () => this._playBack());
@@ -319,6 +327,7 @@ class DahuaVtoTalkCard extends HTMLElement {
         holder.innerHTML = "";
         holder.appendChild(el);
         this._camera = el;
+        this._preferWebRtcOnLoad();
       } catch (e) {
         holder.innerHTML = `<div class="msg">camera_card: ${String(e && e.message || e)}</div>`;
       }
@@ -403,6 +412,69 @@ class DahuaVtoTalkCard extends HTMLElement {
     if (lvl) lvl.style.width = `${Math.min(100, Math.round(Math.sqrt(this._level) * 130))}%`;
   }
 
+  // Safari (and Chrome) hide the device's local IP from WebRTC until the page
+  // has been allowed to use the microphone. Away from that, WebRTC to go2rtc
+  // often cannot connect, the WebRTC Camera card falls back to MSE, and on an
+  // iPad MSE has no door sound. Asking for the microphone for a moment lifts
+  // that, and the player is then reconnected so it can pick WebRTC.
+  async _preferWebRtc(why) {
+    if (this._config.prefer_webrtc === false || !this._config.camera_card) return false;
+    const wc = this.shadowRoot.querySelector("webrtc-camera");
+    if (!wc || typeof wc.onconnect !== "function" || typeof wc.ondisconnect !== "function") return false;
+    if (wc.pcState === 1 || (wc.video && wc.video.srcObject)) return false; // already WebRTC
+    if (typeof wc.mode === "string" && !wc.mode.includes("webrtc")) return false; // WebRTC not allowed
+    if (this._rtcUnlock && why !== "tap") return false;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return false;
+    try {
+      const mic = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      mic.getTracks().forEach((tr) => tr.stop());
+    } catch (e) {
+      this._rtcUnlock = `mic: ${e && e.name}`;
+      return false;
+    }
+    this._rtcUnlock = why;
+    wc.ondisconnect();
+    // the old websocket's close event must fire first (wsState is CLOSED then,
+    // so the player ignores it); reconnecting earlier lets that event drop the
+    // new connection
+    await new Promise((r) => setTimeout(r, 600));
+    if (!wc.ws && !wc.pc && wc.isConnected) wc.onconnect();
+    return true;
+  }
+
+  // The new WebRTC picture starts after the tap, so browsers start it muted.
+  // Unmuting needs another tap: say so instead of leaving silent "🔊".
+  async _afterSwitch() {
+    const wc = this.shadowRoot.querySelector("webrtc-camera");
+    for (let i = 0; i < 25 && wc && !(wc.video && wc.video.srcObject); i++) {
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    await new Promise((r) => setTimeout(r, 300));
+    const v = this._findVideos()[0];
+    if (v && v.muted && this._listening) {
+      this._listening = false;
+      this._status = this._t.tap_again;
+      this._render();
+      return true;
+    }
+    return false;
+  }
+
+  async _preferWebRtcOnLoad() {
+    // only when the microphone is already allowed: then no prompt appears
+    if (this._config.prefer_webrtc === false || !this._config.camera_card) return;
+    try {
+      if (!navigator.permissions || !navigator.permissions.query) return;
+      const st = await navigator.permissions.query({ name: "microphone" });
+      if (st.state !== "granted") return;
+    } catch (e) {
+      return;
+    }
+    // give the player a moment: if WebRTC connects on its own, nothing to do
+    await new Promise((r) => setTimeout(r, 2500));
+    await this._preferWebRtc("load");
+  }
+
   _findVideos() {
     const found = [];
     const walk = (node) => {
@@ -447,6 +519,7 @@ class DahuaVtoTalkCard extends HTMLElement {
       player: label ? label.textContent : null, ready_state: v.readyState,
       decoded_audio_bytes: typeof v.webkitAudioDecodedByteCount === "number" ? v.webkitAudioDecodedByteCount : null,
       camera: this._config.camera_card ? "camera_card" : "camera_entity",
+      webrtc_unlock: this._rtcUnlock || null,
     });
     this._render();
   }

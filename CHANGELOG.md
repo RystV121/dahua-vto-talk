@@ -1,5 +1,14 @@
 # Zmiany
 
+## 0.1.8
+- Podgląd z WebRTC Camera sam przechodzi na WebRTC (RTC) zamiast MSE: Safari na
+  iPadzie (i Chrome) ukrywa adres urządzenia przed WebRTC, dopóki strona nie
+  użyje mikrofonu, więc poza domem WebRTC się nie łączył. Gdy aplikacja ma już
+  zgodę na mikrofon, karta przełącza podgląd od razu po otwarciu; w przeciwnym
+  razie po stuknięciu 🔊 (wtedy może poprosić o drugie stuknięcie, żeby włączyć
+  dźwięk). Wyłączenie: `prefer_webrtc: false`.
+- Testy w przeglądarce z symulacją iPada poza domem (oba przypadki).
+
 ## 0.1.7
 - Mówienie na iOS: po otwarciu mikrofonu karta tworzy świeży AudioContext
   (WebKit potrafi podawać ciszę z kontekstu utworzonego wcześniej), a gdy przez

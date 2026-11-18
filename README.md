@@ -136,6 +136,11 @@ streams:
 i w karcie użyj `url: domofon_sub`. WebRTC dalej dostaje G.711, MSE (Safari) –
 AAC. Po zmianie zrestartuj HA (albo dodatek go2rtc).
 
+**Dlaczego podgląd startuje w MSE, a po „Mów” przechodzi na RTC:** Safari
+ukrywa adres iPada przed WebRTC, dopóki strona nie użyje mikrofonu. Karta
+obchodzi to sama (od 0.1.8): jeśli aplikacja ma już zgodę na mikrofon, przełącza
+podgląd na RTC zaraz po otwarciu, a jeśli nie – po stuknięciu 🔊.
+
 `#backchannel=0` jest ważne: go2rtc nie zajmie wtedy kanału mówienia, z którego
 korzysta przycisk **Mów**. Zamiast pełnego adresu możesz też podać nazwę
 strumienia z `go2rtc.yaml` (np. `url: domofon_sub`).

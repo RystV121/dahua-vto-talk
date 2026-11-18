@@ -29,7 +29,7 @@
  * open, hang up. Other phones/tablets stay quiet.
  */
 
-const CARD_VERSION = "0.2.1";
+const CARD_VERSION = "0.2.2";
 
 // One id per open page: tells "answered here" from "answered on another screen".
 const CLIENT_ID = `c${Math.random().toString(36).slice(2, 10)}`;
@@ -149,6 +149,7 @@ const TEXT = {
     popup_on: "okienko",
     popup_off: "bez okienka",
     popup_hint: "Okienko „Ktoś dzwoni” na tym urządzeniu (wł./wył.)",
+    popup_no_cam: "Brak podglądu w okienku: na tym urządzeniu otwórz raz kartę domofonu z kamerą i z call_popup: true.",
     stop: "Zakończ",
     hold: "Przytrzymaj, żeby mówić",
     open: "Otwórz furtkę",
@@ -199,6 +200,7 @@ const TEXT = {
     popup_on: "popup",
     popup_off: "no popup",
     popup_hint: "\"Someone is ringing\" popup on this device (on/off)",
+    popup_no_cam: "No preview in the popup: open the door card with a camera and call_popup: true once on this device.",
     stop: "Stop",
     hold: "Hold to talk",
     open: "Open gate",
@@ -466,7 +468,8 @@ class DahuaVtoTalkCard extends HTMLElement {
       </style>
       <ha-card>
         <div class="stage">
-          ${this._hasCam ? '<div class="cam" id="cam"></div>' : '<div class="cam" id="cam" style="min-height:120px"></div>'}
+          ${this._hasCam ? '<div class="cam" id="cam"></div>'
+            : `<div class="cam" id="cam" style="min-height:120px">${popup ? `<div class="msg" style="padding-top:56px">${t.popup_no_cam}</div>` : ""}</div>`}
           <div class="top">
             <span class="chip">${icon("mdi:doorbell-video")}<span>${c.title || t.door}</span></span>
             <span class="chip" id="live"><span class="dot"></span><span id="livelb">${t.muted_short}</span></span>
@@ -1280,8 +1283,34 @@ const CallWatcher = {
     if (this.started || typeof window === "undefined" || !window.hassConnection) return;
     this.started = true;
     Promise.resolve(window.hassConnection)
-      .then(({ conn }) => conn.subscribeMessage((info) => this.onInfo(info), { type: "dahua_vto_talk/subscribe_call" }))
+      .then(({ conn }) => {
+        this.conn = conn;
+        this.subscribe(0);
+        // after a Home Assistant restart / lost Wi-Fi: subscribe again (a
+        // wall panel stays open for days and must keep hearing the doorbell)
+        conn.addEventListener("ready", () => setTimeout(() => this.subscribe(0), 2000));
+      })
       .catch(() => { this.started = false; });
+  },
+
+  async subscribe(attempt) {
+    if (this.unsub) {
+      const old = this.unsub;
+      this.unsub = null;
+      try { await old(); } catch (e) { /* the old connection is gone */ }
+    }
+    try {
+      this.unsub = await this.conn.subscribeMessage(
+        (info) => this.onInfo(info),
+        { type: "dahua_vto_talk/subscribe_call" },
+        { resubscribe: false },
+      );
+      this.subscribed = true;
+    } catch (e) {
+      // the integration may still be starting: try again, a bit slower each time
+      this.subscribed = false;
+      if (attempt < 30) setTimeout(() => this.subscribe(attempt + 1), Math.min(30000, 2000 * (attempt + 1)));
+    }
   },
 
   onInfo(info) {

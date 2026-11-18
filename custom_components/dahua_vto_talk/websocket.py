@@ -21,7 +21,9 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 
-from .const import DOMAIN
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
+
+from .const import DOMAIN, SIGNAL_CALL
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -167,22 +169,18 @@ def ws_client_report(hass: HomeAssistant, connection: websocket_api.ActiveConnec
 def ws_subscribe_call(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
     """Call state of every door station: drives the "someone is ringing" popup."""
     msg_id = msg["id"]
-    removers = []
 
     @callback
     def forward(info: dict[str, Any]) -> None:
         connection.send_message(websocket_api.event_message(msg_id, info))
 
+    # a domain-wide signal, not the device object: a page that stays open for
+    # days keeps hearing the doorbell after options changes, reloads and
+    # door stations added later
+    connection.subscriptions[msg_id] = async_dispatcher_connect(hass, SIGNAL_CALL, forward)
     connection.send_result(msg_id)
     for entry in hass.config_entries.async_loaded_entries(DOMAIN):
-        removers.append(entry.runtime_data.add_call_listener(forward))
-
-    @callback
-    def unsubscribe() -> None:
-        for remove in removers:
-            remove()
-
-    connection.subscriptions[msg_id] = unsubscribe
+        forward(entry.runtime_data.call_info())
 
 
 @websocket_api.websocket_command(

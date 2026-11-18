@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 DOMAIN = "dahua_vto_talk"
-VERSION = "0.2.1"
+VERSION = "0.2.2"
 
 CONF_RTSP_PORT = "rtsp_port"
 CONF_HTTP_PORT = "http_port"
@@ -37,6 +37,8 @@ DEFAULT_WATCHDOG_INTERVAL = 30
 DEFAULT_PACKET_BYTES = 1024
 
 SIGNAL_UPDATE = f"{DOMAIN}_update_{{}}"
+# call state of any door station: survives entry reloads (open pages keep listening)
+SIGNAL_CALL = f"{DOMAIN}_call"
 
 TALK_IDLE = "idle"
 TALK_CONNECTING = "connecting"

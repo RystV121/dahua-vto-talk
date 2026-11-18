@@ -460,3 +460,23 @@ async def test_event_entity_rings_on_new_event_only(hass: HomeAssistant, vto: Fa
     hass.states.async_set("event.vto_doorbell", "2026-11-18T10:05:00+00:00")
     await hass.async_block_till_done()
     assert hass.states.get(call).state == "ringing"
+
+
+async def test_popup_subscription_survives_reload_and_late_setup(hass: HomeAssistant, vto: FakeVto, hass_ws_client) -> None:
+    """A wall-panel page stays open for days: changing the options (entry
+    reload) or a restart must not leave it deaf to the doorbell."""
+    entry = await setup_entry(hass, vto)
+    client = await hass_ws_client(hass)
+    await client.send_json({"id": 1, "type": f"{DOMAIN}/subscribe_call"})
+    assert (await client.receive_json())["success"]
+    assert (await client.receive_json())["event"]["state"] == "idle"
+
+    # options changed -> entry reloaded -> a new device object
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    await hass.services.async_call(DOMAIN, "ring", {}, blocking=True)
+    for _ in range(5):
+        ev = await asyncio.wait_for(client.receive_json(), 3)
+        if ev["event"]["state"] == "ringing":
+            break
+    assert ev["event"]["state"] == "ringing", "the open page must still hear the doorbell"

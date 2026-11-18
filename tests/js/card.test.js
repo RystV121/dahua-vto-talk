@@ -288,6 +288,35 @@ console.log("worklet resampler: ok");
   window.localStorage.removeItem("dahua_vto_talk_popup");
   window.eval(`${W}.onInfo({entry_id: 'e1', state: 'idle'})`);
   console.log("call popup: ok");
+
+  // ---- the subscription comes back after a restart / reconnect
+  const listeners = {};
+  let attempts = 0;
+  const live = [];
+  const fakeConn = {
+    addEventListener: (ev, fn) => { listeners[ev] = fn; },
+    subscribeMessage: async (cb, msg, opts) => {
+      attempts += 1;
+      assert.deepStrictEqual(msg, { type: "dahua_vto_talk/subscribe_call" });
+      assert.strictEqual(opts.resubscribe, false);
+      if (attempts === 2) throw { code: "unknown_command" }; // integration still starting
+      live.push(cb);
+      return async () => { live.splice(live.indexOf(cb), 1); };
+    },
+  };
+  const Wt = window.__dahuaVtoCallWatcher;
+  window.hassConnection = Promise.resolve({ conn: fakeConn });
+  Wt.started = false;
+  Wt.start();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.strictEqual(live.length, 1, "subscribed once");
+  listeners.ready(); // websocket came back (HA restarted)
+  await new Promise((r) => setTimeout(r, 2100)); // first retry fails...
+  await new Promise((r) => setTimeout(r, 2100)); // ...the next one works
+  assert.strictEqual(attempts, 3);
+  assert.strictEqual(live.length, 1, "exactly one live subscription again");
+  assert.strictEqual(Wt.subscribed, true);
+  console.log("call popup reconnect: ok");
   setTimeout(() => {
     const busy = [...window.document.querySelectorAll("dahua-vto-talk-card")].filter((c) => c._clock).length;
     console.log("cards with a running clock:", busy);

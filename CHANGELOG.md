@@ -1,5 +1,14 @@
 # Zmiany
 
+## 0.2.2
+- Okienko wyskakuje bez odświeżania strony: wcześniej po przeładowaniu
+  integracji (np. zmiana „Encji dzwonka”) albo restarcie HA otwarta strona
+  przestawała słyszeć dzwonek. Teraz subskrypcja przeżywa przeładowania, a po
+  restarcie HA strona podłącza się sama (z ponawianiem, aż integracja wstanie).
+  Sprawdzone w przeglądarce: świeża strona, po przeładowaniu integracji i po
+  restarcie HA – okienko za każdym razem, strona ani razu nieodświeżona.
+- Okienko bez skonfigurowanej kamery mówi, co zrobić, zamiast pustego paska.
+
 ## 0.2.1
 - Okienko „Ktoś dzwoni” tylko na wybranych urządzeniach (domyślnie nigdzie):
   włącza je karta z `call_popup: true` (np. na dashboardzie panelu ściennego

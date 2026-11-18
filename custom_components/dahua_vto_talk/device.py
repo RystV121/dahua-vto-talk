@@ -44,6 +44,7 @@ from .const import (
     DEFAULT_RTSP_PORT,
     DEFAULT_TALK_GAIN_DB,
     DEFAULT_WATCHDOG_INTERVAL,
+    SIGNAL_CALL,
     SIGNAL_UPDATE,
     TALK_CONNECTING,
     TALK_ERROR,
@@ -149,7 +150,6 @@ class VtoTalkDevice:
         self.call_since: datetime | None = None
         self.call_by: str | None = None
         self.call_source: str | None = None
-        self._call_listeners: set = set()
         self._call_timer = None
 
         # state shown by entities
@@ -559,17 +559,6 @@ class VtoTalkDevice:
         if ring:
             self.start_ring(f"entity:{new.entity_id}")
 
-    @callback
-    def add_call_listener(self, listener):
-        self._call_listeners.add(listener)
-        listener(self.call_info())
-
-        @callback
-        def remove() -> None:
-            self._call_listeners.discard(listener)
-
-        return remove
-
     def call_info(self) -> dict[str, Any]:
         return {
             "entry_id": self.entry.entry_id,
@@ -593,9 +582,7 @@ class VtoTalkDevice:
         elif state == CALL_ANSWERED:
             # nobody hangs up forever: free the popup after 15 minutes
             self._call_timer = async_call_later(self.hass, 900, self._ring_timed_out)
-        info = self.call_info()
-        for listener in list(self._call_listeners):
-            listener(info)
+        async_dispatcher_send(self.hass, SIGNAL_CALL, self.call_info())
         self._refresh()
 
     def _cancel_call_timer(self) -> None:

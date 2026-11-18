@@ -130,6 +130,22 @@
       },
       "preview_gain": {
         "name": "Wzmocnienie dźwięku podglądu"
+      },
+      "ring_volume": {
+        "name": "Głośność dzwonka"
+      }
+    },
+    "select": {
+      "ringtone": {
+        "name": "Melodia dzwonka",
+        "state": {
+          "dingdong": "Ding-dong",
+          "bells": "Dzwoneczki",
+          "marimba": "Marimba",
+          "drop": "Krople",
+          "harp": "Harfa",
+          "off": "Wyłączony"
+        }
       }
     }
   },

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 DOMAIN = "dahua_vto_talk"
-VERSION = "0.2.2"
+VERSION = "0.3.0"
 
 CONF_RTSP_PORT = "rtsp_port"
 CONF_HTTP_PORT = "http_port"
@@ -29,6 +29,11 @@ CALL_IDLE = "idle"
 CALL_RINGING = "ringing"
 CALL_ANSWERED = "answered"
 CALL_STATES = [CALL_IDLE, CALL_RINGING, CALL_ANSWERED]
+
+# ringtones played by the card on the devices that show the call popup
+RINGTONES = ["dingdong", "bells", "marimba", "drop", "harp", "off"]
+DEFAULT_RINGTONE = "dingdong"
+DEFAULT_RING_VOLUME = 60
 
 DEFAULT_RTSP_PORT = 554
 DEFAULT_HTTP_PORT = 80

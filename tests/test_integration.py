@@ -403,7 +403,7 @@ async def test_ring_entity_drives_call_state_and_popup_events(hass: HomeAssistan
     hass.states.async_set("binary_sensor.vto_button", "off")
     await setup_entry(hass, vto, {"ring_entity": "binary_sensor.vto_button", "ring_timeout": 30})
     client = await hass_ws_client(hass)
-    await client.send_json({"id": 1, "type": f"{DOMAIN}/subscribe_call"})
+    await client.send_json({"id": 1, "type": f"{DOMAIN}/subscribe_calls"})
     assert (await client.receive_json())["success"]
     first = await client.receive_json()
     assert first["event"]["state"] == "idle"
@@ -467,7 +467,7 @@ async def test_popup_subscription_survives_reload_and_late_setup(hass: HomeAssis
     reload) or a restart must not leave it deaf to the doorbell."""
     entry = await setup_entry(hass, vto)
     client = await hass_ws_client(hass)
-    await client.send_json({"id": 1, "type": f"{DOMAIN}/subscribe_call"})
+    await client.send_json({"id": 1, "type": f"{DOMAIN}/subscribe_calls"})
     assert (await client.receive_json())["success"]
     assert (await client.receive_json())["event"]["state"] == "idle"
 
@@ -480,3 +480,13 @@ async def test_popup_subscription_survives_reload_and_late_setup(hass: HomeAssis
         if ev["event"]["state"] == "ringing":
             break
     assert ev["event"]["state"] == "ringing", "the open page must still hear the doorbell"
+
+
+
+async def test_old_cards_no_longer_get_the_ring(hass: HomeAssistant, vto: FakeVto, hass_ws_client) -> None:
+    """Cards from 0.2.x rang on every device; their subscription is refused."""
+    await setup_entry(hass, vto)
+    client = await hass_ws_client(hass)
+    await client.send_json({"id": 1, "type": f"{DOMAIN}/subscribe_call"})
+    res = await client.receive_json()
+    assert not res["success"] and res["error"]["code"] == "unknown_command"

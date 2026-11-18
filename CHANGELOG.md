@@ -1,5 +1,18 @@
 # Zmiany
 
+## 0.3.0
+- **Dzwonek na tablecie**: 5 łagodnych melodii (Ding-dong, Dzwoneczki, Marimba,
+  Krople, Harfa) + Wyłączony; wybór w HA („Melodia dzwonka”) i suwak
+  „Głośność dzwonka”. Gra w pętli, aż odbierzesz / odrzucisz / zamkniesz.
+  Zmiana melodii w HA odegra ją raz na tablecie. Melodie są generowane w
+  karcie (bez plików) i grane jak zwykłe audio (na iPadzie także w trybie
+  cichym). W przeglądarce pierwsze dotknięcie ekranu odblokowuje dźwięk.
+- **Dzwoni tylko tam, gdzie chcesz**: okienko i dzwonek włącza wyłącznie
+  dzwoneczek na karcie, stuknięty na danym urządzeniu (nowe ustawienie, wszystko
+  zaczyna wyłączone). `call_popup: true` ustala już tylko wygląd okienka.
+- Karty sprzed 0.3.0 (które dzwoniły wszędzie) nie dostają już sygnału
+  dzwonienia – ucichną same, a po odświeżeniu dostaną nową wersję.
+
 ## 0.2.2
 - Okienko wyskakuje bez odświeżania strony: wcześniej po przeładowaniu
   integracji (np. zmiana „Encji dzwonka”) albo restarcie HA otwarta strona

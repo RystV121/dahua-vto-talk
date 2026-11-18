@@ -250,12 +250,15 @@ Ustawienie (raz):
    ```
 
 2. **Wybierz, które urządzenie dzwoni** (domyślnie żadne – telefony i inne
-   tablety nie dzwonią). Na dashboardzie panelu ściennego dodaj do karty
-   `call_popup: true` i otwórz go raz na tym iPadzie:
+   tablety nie dzwonią): na tablecie ściennym stuknij **dzwoneczek** w rogu
+   karty, aż pokaże „okienko” (zagra przy tym dzwonek). Tylko ten tablet będzie
+   pokazywał okienko i dzwonił. Na każdym innym urządzeniu nic nie rób.
+3. Wygląd okienka (kamera, przycisk furtki) bierze się z karty z
+   `call_popup: true` – dodaj tę linijkę do karty na dashboardzie tabletu:
 
    ```yaml
    type: custom:dahua-vto-talk-card
-   call_popup: true          # to urządzenie pokazuje okienko
+   call_popup: true          # okienko wygląda jak ta karta
    camera_card:
      type: custom:webrtc-camera
      url: domofon_sub
@@ -263,8 +266,12 @@ Ustawienie (raz):
    open_door_entity: button.domofon_open_door
    ```
 
-   Okienko wygląda potem jak ta karta. Zamiast tego możesz też na dowolnym
-   urządzeniu stuknąć dzwoneczek w rogu karty (**okienko / bez okienka**).
+4. **Dzwonek**: w urządzeniu „Domofon – rozmowa” wybierz **Melodię dzwonka**
+   (Ding-dong, Dzwoneczki, Marimba, Krople, Harfa, Wyłączony) i **Głośność
+   dzwonka**. Po zmianie tablet zagra ją raz. Dzwoni w pętli, aż odbierzesz,
+   odrzucisz albo zamkniesz okienko. Jeśli tablet nie gra po przeładowaniu
+   strony, dotknij raz ekranu – przeglądarki blokują dźwięk do pierwszego
+   dotknięcia (aplikacja HA zwykle nie).
 
 Test bez wychodzenia z domu: **Narzędzia deweloperskie → Akcje →
 `dahua_vto_talk.ring`**. Czujnik **„Połączenie”** (brak / dzwoni / odebrane)

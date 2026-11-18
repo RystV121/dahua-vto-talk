@@ -80,7 +80,8 @@ async def main() -> int:
                 await cdp.call("Page.enable")
                 await cdp.call("Page.navigate", url=f"{HA}/auth/authorize?response_type=code&client_id={HA}/")
                 await asyncio.sleep(2)
-                await cdp.js(f"localStorage.setItem('hassTokens', {json.dumps(json.dumps(tokens))}); true")
+                await cdp.js(f"localStorage.setItem('hassTokens', {json.dumps(json.dumps(tokens))}); "
+                             "localStorage.setItem('dahua_vto_talk_ring_here', 'on'); true")  # = bell chip tapped
                 await cdp.call("Page.navigate", url=f"{HA}/lovelace/domofon-cam")
                 await asyncio.sleep(6)
                 await cdp.call("Page.navigate", url=f"{HA}/lovelace/elsewhere")

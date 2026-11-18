@@ -7,7 +7,7 @@ simulated VTO must have heard the tone and be released; the call sensor must
 go ringing -> answered -> idle.
 
 Needs: HA on 127.0.0.1:18123 with the preview e2e config (views "domofon-cam"
-(its card has call_popup: true, so this browser opts in)
+(the bell chip is set for this browser, the card has call_popup: true)
 and "elsewhere"), the fake VTO (tests/e2e/run_fake_vto.py), go2rtc for the
 preview (optional) and google-chrome.
 
@@ -89,7 +89,8 @@ async def main() -> int:
                 await cdp.call("Page.enable")
                 await cdp.call("Page.navigate", url=f"{HA}/auth/authorize?response_type=code&client_id={HA}/")
                 await asyncio.sleep(2)
-                await cdp.js(f"localStorage.setItem('hassTokens', {json.dumps(json.dumps(tokens))}); true")
+                await cdp.js(f"localStorage.setItem('hassTokens', {json.dumps(json.dumps(tokens))}); "
+                             "localStorage.setItem('dahua_vto_talk_ring_here', 'on'); true")  # = bell chip tapped
                 # 1) the card is seen once on this device (remembers its config for the popup)
                 await cdp.call("Page.navigate", url=f"{HA}/lovelace/domofon-cam")
                 await asyncio.sleep(6)

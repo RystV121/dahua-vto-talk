@@ -259,10 +259,20 @@ console.log("worklet resampler: ok");
   window.eval(`${W}.onInfo({entry_id: 'e1', state: 'ringing', since: new Date().toISOString()})`);
   assert(!window.document.querySelector(".dahua-vto-popup"), "not opted in: no popup");
   window.eval(`${W}.onInfo({entry_id: 'e1', state: 'idle'})`);
-  // the wall panel's card opts this device in
+  // a card with call_popup: true only sets the popup's look, it does NOT make
+  // this device ring (that switched phones on by accident in 0.2.x)
   const wall = window.document.createElement("dahua-vto-talk-card");
   wall.setConfig({ call_popup: true, open_door_entity: "button.domofon_open_door", title: "Panel" });
-  assert.strictEqual(window.localStorage.getItem("dahua_vto_talk_popup"), "on");
+  assert.notStrictEqual(window.localStorage.getItem("dahua_vto_talk_ring_here"), "on");
+  window.eval(`${W}.onInfo({entry_id: 'e1', state: 'ringing', since: new Date().toISOString()})`);
+  assert(!window.document.querySelector(".dahua-vto-popup"), "call_popup alone does not ring");
+  window.eval(`${W}.onInfo({entry_id: 'e1', state: 'idle'})`);
+  // the bell chip on the wall tablet does
+  window.document.body.appendChild(wall);
+  wall.hass = card.hass;
+  await new Promise((r) => setTimeout(r, 10));
+  wall.shadowRoot.getElementById("popupchip").click();
+  assert.strictEqual(window.localStorage.getItem("dahua_vto_talk_ring_here"), "on");
   // another card shown later does not replace the wall panel's look
   window.document.createElement("dahua-vto-talk-card").setConfig({ title: "Inna" });
   assert(JSON.parse(window.localStorage.getItem("dahua_vto_talk_popup_config")).title === "Panel");
@@ -282,10 +292,10 @@ console.log("worklet resampler: ok");
   window.eval(`${W}.onInfo({entry_id: 'e1', state: 'answered', by: 'other-ipad'})`);
   assert(!window.document.querySelector(".dahua-vto-popup"), "answered elsewhere: popup gone");
   // turned off on this device -> no popup
-  window.localStorage.setItem("dahua_vto_talk_popup", "off");
+  window.localStorage.setItem("dahua_vto_talk_ring_here", "off");
   window.eval(`${W}.onInfo({entry_id: 'e1', state: 'ringing'})`);
   assert(!window.document.querySelector(".dahua-vto-popup"), "popup off on this device");
-  window.localStorage.removeItem("dahua_vto_talk_popup");
+  window.localStorage.setItem("dahua_vto_talk_ring_here", "on");
   window.eval(`${W}.onInfo({entry_id: 'e1', state: 'idle'})`);
   console.log("call popup: ok");
 
@@ -297,7 +307,8 @@ console.log("worklet resampler: ok");
     addEventListener: (ev, fn) => { listeners[ev] = fn; },
     subscribeMessage: async (cb, msg, opts) => {
       attempts += 1;
-      assert.deepStrictEqual(msg, { type: "dahua_vto_talk/subscribe_call" });
+      assert.strictEqual(msg.type, "dahua_vto_talk/subscribe_calls");
+      assert.ok(msg.version && msg.client);
       assert.strictEqual(opts.resubscribe, false);
       if (attempts === 2) throw { code: "unknown_command" }; // integration still starting
       live.push(cb);

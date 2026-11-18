@@ -20,7 +20,9 @@
  * mute_while_talking: false               # mute door audio while you talk
  * entry_id: ...                           # only with several door stations
  *
- * call_popup: true                        # this device shows the call popup
+ * call_popup: true                        # the popup looks like this card
+ * ringtone: dingdong|bells|marimba|drop|harp|off   # default: integration's select
+ * ring_volume: 60                         # 0-100, default: integration's slider
  *
  * Call popup: when the integration's call state goes to "ringing" (doorbell
  * entity in its options, or the dahua_vto_talk.ring service), the devices
@@ -29,11 +31,13 @@
  * open, hang up. Other phones/tablets stay quiet.
  */
 
-const CARD_VERSION = "0.2.2";
+const CARD_VERSION = "0.3.0";
 
 // One id per open page: tells "answered here" from "answered on another screen".
 const CLIENT_ID = `c${Math.random().toString(36).slice(2, 10)}`;
-const POPUP_FLAG = "dahua_vto_talk_popup"; // "on" = this device shows the call popup
+// "on" = this device rings (popup + ringtone). A new key in 0.3.0: earlier
+// versions switched devices on by themselves; now only the bell chip does.
+const POPUP_FLAG = "dahua_vto_talk_ring_here";
 const POPUP_CONFIG = "dahua_vto_talk_popup_config"; // the card config the popup uses
 
 function storageGet(key) {
@@ -43,9 +47,8 @@ function storageSet(key, value) {
   try { window.localStorage.setItem(key, value); } catch (e) { /* private mode */ }
 }
 // Off by default: only the devices you choose ring (a wall-panel iPad), not
-// every phone and tablet logged in to Home Assistant. A card with
-// call_popup: true switches it on for the device that shows it; the bell chip
-// on the card toggles it by hand.
+// every phone and tablet logged in to Home Assistant. Only the bell chip on
+// the card switches it, on the device you tap it on.
 function popupEnabled(value) {
   if (value !== undefined) storageSet(POPUP_FLAG, value ? "on" : "off");
   return storageGet(POPUP_FLAG) === "on";
@@ -258,7 +261,6 @@ class DahuaVtoTalkCard extends HTMLElement {
   setConfig(config) {
     this._config = { mode: "toggle", mute_while_talking: false, ...config };
     if (!config.popup) {
-      if (config.call_popup === true || config.call_popup === false) popupEnabled(config.call_popup);
       // the popup on this device looks like the card that switched it on
       // (or, without call_popup, the last card shown here)
       const { popup, call_popup, ...keep } = config;
@@ -287,6 +289,7 @@ class DahuaVtoTalkCard extends HTMLElement {
       }
     }
     if (first) this._render();
+    if (!this._config.popup && popupEnabled()) Ringer.maybePreview(ringSettings(hass, this._config));
     if (this._listening) {
       const db = this._previewGainDb();
       if (db !== this._lastBoostDb) {
@@ -346,6 +349,7 @@ class DahuaVtoTalkCard extends HTMLElement {
 
   _answer() {
     // everything that needs the tap (iOS) happens synchronously here
+    Ringer.stop();
     this._inCall = true;
     this._micMuted = false;
     this._callStart = Date.now();
@@ -357,6 +361,7 @@ class DahuaVtoTalkCard extends HTMLElement {
   }
 
   _decline() {
+    Ringer.stop();
     this._callAction("decline");
     this._closePopup();
   }
@@ -525,7 +530,13 @@ class DahuaVtoTalkCard extends HTMLElement {
     const chip = $("popupchip");
     if (chip) {
       chip.addEventListener("click", () => {
-        popupEnabled(!popupEnabled());
+        const on = !popupEnabled();
+        popupEnabled(on);
+        if (on) {
+          // the tap also unlocks sound on this tablet; play the ringtone once
+          Ringer.unlock();
+          Ringer.play(ringSettings(this._hass, this._config));
+        }
         this._render();
       });
     }
@@ -1269,6 +1280,184 @@ if (typeof customElements !== "undefined") {
   customElements.whenDefined("home-assistant").then(defineCard, () => {});
 }
 
+// ------------------------------------------------------------- ringtones
+// Five gentle tones, synthesised here (no sound files to ship). They play
+// only on devices that ring (bell chip).
+
+const RINGTONES = {
+  // [start s, frequency Hz, length s, wave, partials [[ratio, level]...], pitch drop]
+  dingdong: [[0, 659.25, 1.3, "sine", [[2, 0.18]]], [0.5, 523.25, 1.8, "sine", [[2, 0.18]]]],
+  bells: [
+    [0, 1760, 1.1, "sine", [[2.76, 0.3], [5.4, 0.12]]],
+    [0.2, 1318.5, 1.1, "sine", [[2.76, 0.3], [5.4, 0.12]]],
+    [0.4, 1568, 1.6, "sine", [[2.76, 0.3], [5.4, 0.12]]],
+  ],
+  marimba: [
+    [0, 523.25, 0.55, "sine", [[4, 0.22]]],
+    [0.15, 659.25, 0.55, "sine", [[4, 0.22]]],
+    [0.3, 783.99, 0.55, "sine", [[4, 0.22]]],
+    [0.45, 1046.5, 0.9, "sine", [[4, 0.22]]],
+  ],
+  drop: [
+    [0, 1100, 0.35, "sine", [], 0.5],
+    [0.32, 900, 0.35, "sine", [], 0.5],
+    [0.7, 1250, 0.45, "sine", [], 0.5],
+  ],
+  harp: [
+    [0, 392, 1.6, "triangle", []],
+    [0.12, 493.88, 1.6, "triangle", []],
+    [0.24, 587.33, 1.6, "triangle", []],
+    [0.36, 783.99, 1.6, "triangle", []],
+    [0.48, 987.77, 2.0, "triangle", []],
+  ],
+};
+
+function ringSettings(hass, cfg) {
+  cfg = cfg || {};
+  const find = (domain, key) => {
+    if (!hass || !hass.entities) return null;
+    const id = Object.keys(hass.entities).find((e) => {
+      const r = hass.entities[e];
+      return r && r.platform === "dahua_vto_talk" && r.translation_key === key && e.startsWith(domain + ".");
+    });
+    return id && hass.states[id] ? hass.states[id].state : null;
+  };
+  const tone = cfg.ringtone || find("select", "ringtone") || "dingdong";
+  let volume = cfg.ring_volume != null ? Number(cfg.ring_volume) : parseFloat(find("number", "ring_volume"));
+  if (!Number.isFinite(volume)) volume = 60;
+  return { tone: RINGTONES[tone] || tone === "off" ? tone : "dingdong", volume: Math.max(0, Math.min(100, volume)) };
+}
+
+// Tones are rendered to a WAV once and played with an <audio> element: media
+// elements play in iOS silent mode (Web Audio does not) and the Home
+// Assistant app lets them start without a tap; in a browser the first touch
+// on the page unlocks the element for later rings.
+function renderTone(tone, volume, gapSeconds) {
+  const notes = RINGTONES[tone];
+  const rate = 22050;
+  const len = notes.reduce((m, n) => Math.max(m, n[0] + n[2]), 0);
+  const total = Math.ceil((len + gapSeconds) * rate);
+  const mix = new Float32Array(total);
+  for (const [at, f, dur, wave, partials = [], drop = 0] of notes) {
+    for (const [ratio, level] of [[1, 1], ...partials]) {
+      const decay = ratio === 1 ? dur : dur * 0.5;
+      const start = Math.floor(at * rate);
+      const n = Math.floor(decay * rate);
+      const k = Math.log(10000) / n; // to -80 dB at the end
+      let phase = 0;
+      for (let i = 0; i < n && start + i < total; i++) {
+        const t = i / rate;
+        let freq = f * ratio;
+        if (drop) freq *= Math.pow(drop, Math.min(1, t / (dur * 0.4)));
+        phase += (2 * Math.PI * freq) / rate;
+        const p = phase % (2 * Math.PI);
+        const v = wave === "triangle" ? (2 / Math.PI) * Math.asin(Math.sin(p)) : Math.sin(p);
+        const env = Math.min(1, i / (0.012 * rate)) * Math.exp(-k * i);
+        mix[start + i] += v * env * level * 0.5;
+      }
+    }
+  }
+  let peak = 0;
+  for (const v of mix) peak = Math.max(peak, Math.abs(v));
+  const gain = peak > 0 ? (0.9 / peak) * Math.pow(volume / 100, 1.5) : 0;
+  const buf = new ArrayBuffer(44 + total * 2);
+  const dv = new DataView(buf);
+  const str = (o, x) => { for (let i = 0; i < x.length; i++) dv.setUint8(o + i, x.charCodeAt(i)); };
+  str(0, "RIFF"); dv.setUint32(4, 36 + total * 2, true); str(8, "WAVE"); str(12, "fmt ");
+  dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+  dv.setUint32(24, rate, true); dv.setUint32(28, rate * 2, true); dv.setUint16(32, 2, true);
+  dv.setUint16(34, 16, true); str(36, "data"); dv.setUint32(40, total * 2, true);
+  for (let i = 0; i < total; i++) dv.setInt16(44 + i * 2, Math.max(-1, Math.min(1, mix[i] * gain)) * 32767, true);
+  return { blob: new Blob([buf], { type: "audio/wav" }), seconds: len };
+}
+
+const Ringer = {
+  el: null,
+  cache: {},
+  ringing: false,
+  unlocked: false,
+  stopTimer: null,
+  last: null,
+
+  element() {
+    if (!this.el) {
+      this.el = new Audio();
+      this.el.preload = "auto";
+      this.el.setAttribute("playsinline", "");
+    }
+    return this.el;
+  },
+
+  url(tone, volume, loop) {
+    const key = `${tone}/${volume}/${loop ? 1 : 0}`;
+    if (!this.cache[key]) {
+      const { blob, seconds } = renderTone(tone, volume, loop ? 2.5 : 0.2);
+      this.cache[key] = { url: URL.createObjectURL(blob), seconds };
+    }
+    return this.cache[key];
+  },
+
+  // a touch on a device that rings: play a few ms of silence so the element
+  // may start on its own later (iOS / browsers that block autoplay)
+  unlock() {
+    if (this.unlocked) return;
+    try {
+      const el = this.element();
+      if (!this.ringing) el.src = this.url("dingdong", 0, false).url;
+      Promise.resolve(el.play())
+        .then(() => { this.unlocked = true; if (!this.ringing) el.pause(); })
+        .catch(() => {});
+    } catch (e) { /* no sound support */ }
+  },
+
+  // one pass (preview / chip) or a loop while ringing; returns its seconds
+  play(settings, loop = false) {
+    try {
+      const { tone, volume } = settings;
+      if (!RINGTONES[tone] || volume <= 0) return 0;
+      const el = this.element();
+      const { url, seconds } = this.url(tone, volume, loop);
+      el.loop = loop;
+      if (el.src !== url) el.src = url;
+      try { el.currentTime = 0; } catch (e) { /* not loaded yet */ }
+      Promise.resolve(el.play()).then(() => { this.unlocked = true; this.blocked = false; }, () => { this.blocked = true; });
+      return seconds;
+    } catch (e) {
+      return 0; // no sound is better than a broken popup
+    }
+  },
+
+  // ring until stopped (answered, declined, closed) or 90 s
+  start(getSettings) {
+    this.stop();
+    this.ringing = true;
+    this.play(getSettings(), true);
+    this.stopTimer = setTimeout(() => this.stop(), 90000);
+  },
+
+  stop() {
+    this.ringing = false;
+    clearTimeout(this.stopTimer);
+    this.stopTimer = null;
+    if (this.el) {
+      try { this.el.pause(); this.el.loop = false; } catch (e) { /* gone */ }
+    }
+  },
+
+  // the ringtone or its volume was changed in Home Assistant: let the
+  // ringing device play it once, so you hear what you picked
+  maybePreview(settings) {
+    const key = `${settings.tone}/${settings.volume}`;
+    if (this.last !== null && this.last !== key && !this.ringing) this.play(settings);
+    this.last = key;
+  },
+};
+
+if (typeof document !== "undefined") {
+  // the first touch on a device that rings unlocks its sound for the ringtone
+  document.addEventListener("pointerdown", () => { if (popupEnabled()) Ringer.unlock(); }, { capture: true, passive: true });
+}
+
 // ------------------------------------------------------------ call popup
 // Loaded on every Home Assistant page (the integration adds this file as an
 // extra module), so a ringing door shows up over whatever dashboard is open.
@@ -1302,7 +1491,7 @@ const CallWatcher = {
     try {
       this.unsub = await this.conn.subscribeMessage(
         (info) => this.onInfo(info),
-        { type: "dahua_vto_talk/subscribe_call" },
+        { type: "dahua_vto_talk/subscribe_calls", version: CARD_VERSION, client: CLIENT_ID },
         { resubscribe: false },
       );
       this.subscribed = true;
@@ -1317,7 +1506,10 @@ const CallWatcher = {
     this.last = info;
     window.dispatchEvent(new window.CustomEvent("dahua-vto-call", { detail: info }));
     if (info.state === "ringing") this.open(info);
-    else if (info.state === "idle" || (info.state === "answered" && info.by !== CLIENT_ID)) this.close(false);
+    else {
+      Ringer.stop();
+      if (info.state === "idle" || (info.state === "answered" && info.by !== CLIENT_ID)) this.close(false);
+    }
   },
 
   hass() {
@@ -1358,10 +1550,11 @@ const CallWatcher = {
       const h = this.hass();
       if (h && card.hass !== h) card.hass = h;
     }, 1000);
-    this.chime();
+    Ringer.start(() => ringSettings(this.hass(), cfg));
   },
 
   close(force) {
+    Ringer.stop();
     if (!this.overlay) return;
     if (!force && this.card && this.card._inCall) return; // my own call stays open
     clearInterval(this.timer);
@@ -1370,38 +1563,11 @@ const CallWatcher = {
     this.overlay = null;
     this.card = null;
   },
-
-  chime() {
-    // a short ding-dong; browsers may refuse sound without a tap, then it is silent
-    try {
-      const Ctx = window.AudioContext || window.webkitAudioContext;
-      const ctx = new Ctx();
-      ctx.resume().catch(() => {});
-      setTimeout(() => {
-        try {
-        if (ctx.state !== "running") { ctx.close().catch(() => {}); return; }
-        const t0 = ctx.currentTime;
-        [[0, 880], [0.38, 660], [1.3, 880], [1.68, 660]].forEach(([dt, f]) => {
-          const o = ctx.createOscillator();
-          const g = ctx.createGain();
-          o.frequency.value = f;
-          g.gain.setValueAtTime(0.0001, t0 + dt);
-          g.gain.exponentialRampToValueAtTime(0.25, t0 + dt + 0.02);
-          g.gain.exponentialRampToValueAtTime(0.0001, t0 + dt + 0.34);
-          o.connect(g);
-          g.connect(ctx.destination);
-          o.start(t0 + dt);
-          o.stop(t0 + dt + 0.36);
-        });
-        setTimeout(() => ctx.close().catch(() => {}), 2600);
-        } catch (e) { /* no sound */ }
-      }, 80);
-    } catch (e) { /* no sound, the popup is still there */ }
-  },
 };
 
 if (typeof window !== "undefined") {
   window.__dahuaVtoCallWatcher = CallWatcher; // for tests and debugging
+  window.__dahuaVtoRinger = Ringer;
   CallWatcher.start();
 }
 

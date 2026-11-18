@@ -142,6 +142,8 @@ class VtoTalkDevice:
         self.keep_codec = True  # the switch entity restores the user's choice
         self.talk_gain_db = DEFAULT_TALK_GAIN_DB  # the number entity restores it
         self.preview_gain_db = 0.0  # applied by the card in the browser
+        self.ringtone = "dingdong"  # select entity restores it; the card plays it
+        self.ring_volume = 60.0
 
         # call popup: idle -> ringing -> answered -> idle
         self.ring_entity: str = opts.get(CONF_RING_ENTITY, "") or ""

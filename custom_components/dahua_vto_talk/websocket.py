@@ -164,7 +164,11 @@ def ws_client_report(hass: HomeAssistant, connection: websocket_api.ActiveConnec
     connection.send_result(msg["id"])
 
 
-@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/subscribe_call"})
+# Renamed from subscribe_call in 0.3.0: cards older than that rang on every
+# device by default; with the old name gone they stay silent until reloaded.
+@websocket_api.websocket_command(
+    {vol.Required("type"): f"{DOMAIN}/subscribe_calls", vol.Optional("version"): str, vol.Optional("client"): str}
+)
 @callback
 def ws_subscribe_call(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
     """Call state of every door station: drives the "someone is ringing" popup."""

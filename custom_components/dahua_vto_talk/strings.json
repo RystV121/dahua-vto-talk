@@ -130,6 +130,22 @@
       },
       "preview_gain": {
         "name": "Preview sound boost"
+      },
+      "ring_volume": {
+        "name": "Ringtone volume"
+      }
+    },
+    "select": {
+      "ringtone": {
+        "name": "Ringtone",
+        "state": {
+          "dingdong": "Ding-dong",
+          "bells": "Bells",
+          "marimba": "Marimba",
+          "drop": "Drops",
+          "harp": "Harp",
+          "off": "Off"
+        }
       }
     }
   },

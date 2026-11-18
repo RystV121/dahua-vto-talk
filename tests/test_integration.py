@@ -306,6 +306,10 @@ async def test_websocket_talk_end_to_end(hass: HomeAssistant, vto: FakeVto, hass
     assert gain is not None and float(gain.state) == 0
     await hass.services.async_call("number", "set_value", {"entity_id": gain.entity_id, "value": 9}, blocking=True)
     assert hass.config_entries.async_loaded_entries(DOMAIN)[0].runtime_data.talk_gain_db == 9
+    preview = hass.states.get(entity(hass, "number", "preview_gain"))
+    assert preview is not None and float(preview.state) == 0  # off by default: playback unchanged
+    await hass.services.async_call("number", "set_value", {"entity_id": preview.entity_id, "value": 12}, blocking=True)
+    assert float(hass.states.get(preview.entity_id).state) == 12
     await client.send_json(
         {"id": 10, "type": f"{DOMAIN}/client_report", "kind": "talk",
          "data": {"frames_sent": 100, "max_peak": 0.37, "seconds": 2.0, "ctx_rate": 48000, "worklet": True}}

@@ -134,6 +134,7 @@ class VtoTalkDevice:
         )
         self.keep_codec = True  # the switch entity restores the user's choice
         self.talk_gain_db = DEFAULT_TALK_GAIN_DB  # the number entity restores it
+        self.preview_gain_db = 0.0  # applied by the card in the browser
 
         # state shown by entities
         self.talk_state = TALK_IDLE

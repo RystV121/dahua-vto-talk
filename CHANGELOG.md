@@ -1,5 +1,13 @@
 # Zmiany
 
+## 0.1.11
+- Suwak „Wzmocnienie dźwięku podglądu” (0–24 dB, domyślnie 0): głośniejszy
+  dźwięk z furtki w karcie (Web Audio + ogranicznik). Przy 0 dB odtwarzanie
+  jest dokładnie takie jak wcześniej; jeśli przeglądarka nie pozwoli na
+  wzmocnienie, karta sama wraca do zwykłego dźwięku. Działa dla podglądu
+  WebRTC (RTC); w trybie MSE gra bez wzmocnienia. Można też ustawić w karcie:
+  `preview_gain_db: 12`.
+
 ## 0.1.10
 - Mówienie przez internet nie jest już poszarpane: bufor 300 ms zbiera dźwięk
   przed startem i po każdym przestoju sieci, zamiast wysyłać go co do ramki.

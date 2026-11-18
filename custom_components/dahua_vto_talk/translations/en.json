@@ -116,6 +116,9 @@
     "number": {
       "talk_gain": {
         "name": "Talk gain"
+      },
+      "preview_gain": {
+        "name": "Preview sound boost"
       }
     }
   },

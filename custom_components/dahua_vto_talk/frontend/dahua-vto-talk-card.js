@@ -10,6 +10,8 @@
  * type: custom:dahua-vto-talk-card
  * camera_entity: camera.domofon_main      # optional
  * prefer_webrtc: true                     # default; see _preferWebRtc
+ * preview_gain_db: 0                      # optional; default: the integration's
+ *                                         # "Preview sound boost" slider
  * camera_card:                            # optional, any card instead of the
  *   type: custom:webrtc-camera            # built-in camera view (e.g. a light
  *   url: domofon_sub                      # sub stream via go2rtc / WebRTC)
@@ -19,7 +21,7 @@
  * entry_id: ...                           # only with several door stations
  */
 
-const CARD_VERSION = "0.1.10";
+const CARD_VERSION = "0.1.11";
 
 const WORKLET_SOURCE = `
 class VtoPcmSender extends AudioWorkletProcessor {
@@ -113,6 +115,7 @@ const TEXT = {
     not_setup: "Integracja Dahua VTO Talk nie jest skonfigurowana.",
     packets: "pakiety",
     gaps: "przerwy",
+    boost: "wzmocnienie",
     ended: "Połączenie zakończone",
     no_entity: "Nie ma takiej encji kamery",
     sent: "Wysłano",
@@ -144,6 +147,7 @@ const TEXT = {
     not_setup: "Dahua VTO Talk is not set up.",
     packets: "packets",
     gaps: "gaps",
+    boost: "boost",
     ended: "Call ended",
     no_entity: "Camera entity not found",
     sent: "Sent",
@@ -203,6 +207,13 @@ class DahuaVtoTalkCard extends HTMLElement {
       }
     }
     if (first) this._render();
+    if (this._listening) {
+      const db = this._previewGainDb();
+      if (db !== this._lastBoostDb) {
+        this._lastBoostDb = db;
+        this._startBoost();
+      }
+    }
   }
 
   get _hasCam() {
@@ -496,6 +507,7 @@ class DahuaVtoTalkCard extends HTMLElement {
   // so "I hear nothing" can be narrowed down from a screenshot.
   _checkPreviewAudio() {
     const t = this._t;
+    if (this._listening) this._startBoost();
     const v = this._findVideos()[0];
     if (!v) { this._status = t.diag_no_video; this._render(); return; }
     let track = null;
@@ -515,6 +527,8 @@ class DahuaVtoTalkCard extends HTMLElement {
       mode,
       v.paused ? t.diag_paused : t.diag_playing,
     ];
+    if (this._boost) parts.push(`${t.boost} +${this._boost.db} dB`);
+    else if (this._previewGainDb() > 0) parts.push(`${t.boost}: ${this._boostError || "-"}`);
     this._status = `🔊 ${parts.join(" • ")}`;
     const wc = this.shadowRoot.querySelector("webrtc-camera");
     const label = wc && wc.shadowRoot && wc.shadowRoot.querySelector(".mode");
@@ -525,6 +539,8 @@ class DahuaVtoTalkCard extends HTMLElement {
       decoded_audio_bytes: typeof v.webkitAudioDecodedByteCount === "number" ? v.webkitAudioDecodedByteCount : null,
       camera: this._config.camera_card ? "camera_card" : "camera_entity",
       webrtc_unlock: this._rtcUnlock || null,
+      boost_db: this._boost ? this._boost.db : 0,
+      boost_error: this._boostError || null,
     });
     this._render();
   }
@@ -532,10 +548,108 @@ class DahuaVtoTalkCard extends HTMLElement {
   _setListening(on) {
     this._listening = on;
     this._setVideosMuted(!on);
+    if (on) this._startBoost();
+    else this._stopBoost();
     this._render();
   }
 
+  // ------------------------------------------------- preview sound boost
+  // A <video> cannot play louder than 100 %. With a boost set, the door sound
+  // of a WebRTC preview goes through Web Audio (gain + limiter) and the video
+  // itself is muted. 0 dB (the default) leaves playback exactly as before; if
+  // the browser does not let the Web Audio path run, the plain video stays on.
+
+  _previewGainDb() {
+    if (this._config.preview_gain_db != null) return Math.max(0, Number(this._config.preview_gain_db) || 0);
+    const h = this._hass;
+    if (!h || !h.entities) return 0;
+    if (!this._pgEntity) {
+      this._pgEntity = Object.keys(h.entities).find((id) => {
+        const e = h.entities[id];
+        return e && e.platform === "dahua_vto_talk" && e.translation_key === "preview_gain";
+      }) || null;
+    }
+    const st = this._pgEntity && h.states[this._pgEntity];
+    const v = st ? parseFloat(st.state) : 0;
+    return Number.isFinite(v) && v > 0 ? v : 0;
+  }
+
+  _startBoost() {
+    const db = this._previewGainDb();
+    const v = this._findVideos()[0];
+    const tracks = v && v.srcObject && v.srcObject.getAudioTracks ? v.srcObject.getAudioTracks() : [];
+    if (!this._listening || db <= 0 || !tracks.length) {
+      this._stopBoost();
+      return false;
+    }
+    const level = Math.pow(10, db / 20);
+    const b = this._boost;
+    if (b && b.video === v && b.track === tracks[0]) {
+      b.level = level;
+      if (!this._mutedForTalk) b.gain.gain.value = level;
+      return true;
+    }
+    this._stopBoost();
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      const ctx = new Ctx();
+      ctx.resume().catch(() => {});
+      const src = ctx.createMediaStreamSource(new MediaStream([tracks[0]]));
+      const gain = ctx.createGain();
+      gain.gain.value = this._mutedForTalk ? 0 : level;
+      const lim = ctx.createDynamicsCompressor();
+      lim.threshold.value = -6;
+      lim.knee.value = 6;
+      lim.ratio.value = 12;
+      lim.attack.value = 0.003;
+      lim.release.value = 0.25;
+      const an = ctx.createAnalyser();
+      an.fftSize = 2048;
+      src.connect(gain);
+      gain.connect(lim);
+      lim.connect(an);
+      an.connect(ctx.destination);
+      const boost = { ctx, src, gain, an, level, video: v, track: tracks[0], db };
+      this._boost = boost;
+      const engage = () => {
+        if (this._boost !== boost) return;
+        if (ctx.state === "running") {
+          v.muted = true; // the boosted path plays the sound now
+          boost.active = true;
+        } else {
+          this._boostError = `audio context ${ctx.state}`;
+          this._stopBoost();
+        }
+      };
+      if (ctx.state === "running") engage();
+      else setTimeout(engage, 700);
+      return true;
+    } catch (e) {
+      this._boostError = String((e && e.message) || e);
+      this._stopBoost();
+      return false;
+    }
+  }
+
+  _stopBoost() {
+    const b = this._boost;
+    if (!b) return;
+    this._boost = null;
+    try { b.src.disconnect(); } catch (e) { /* ignore */ }
+    b.ctx.close().catch(() => {});
+    if (this._listening && !this._mutedForTalk && b.video) {
+      b.video.muted = false;
+      try { Promise.resolve(b.video.play()).catch(() => {}); } catch (e) { /* ignore */ }
+    }
+  }
+
   _setVideosMuted(muted) {
+    if (this._boost) {
+      // boosted: the video stays muted, the gain is the volume knob
+      this._mutedForTalk = muted && this._listening;
+      this._boost.gain.gain.value = muted ? 0 : this._boost.level;
+      if (this._boost.active) return;
+    }
     if (this._camera && "muted" in this._camera) this._camera.muted = muted;
     const walk = (node) => {
       if (!node) return;

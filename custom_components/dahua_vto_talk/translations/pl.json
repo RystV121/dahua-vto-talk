@@ -116,6 +116,9 @@
     "number": {
       "talk_gain": {
         "name": "Wzmocnienie mówienia"
+      },
+      "preview_gain": {
+        "name": "Wzmocnienie dźwięku podglądu"
       }
     }
   },

@@ -57,7 +57,12 @@ VARIANTS = {
     "ipad-away": ("domofon_sub", "webrtc,mse,hls,mjpeg"),
     # same, but the app already has the mic permission: switch without a tap
     "ipad-granted": ("domofon_sub", "webrtc,mse,hls,mjpeg"),
+    # preview sound boost (+12 dB through Web Audio, the video itself muted)
+    "boost": ("domofon_sub", "webrtc,mse,hls,mjpeg"),
+    # the same, set with the integration's "Preview sound boost" slider
+    "boost-slider": ("domofon_sub", "webrtc,mse,hls,mjpeg"),
 }
+CARD_EXTRA = {"boost": "        preview_gain_db: 12\n"}
 if os.environ.get("ONLY"):
     VARIANTS = {k: v for k, v in VARIANTS.items() if k in os.environ["ONLY"].split(",")}
 
@@ -91,12 +96,13 @@ if (location.pathname.includes('safari') || location.pathname.includes('ipad')) 
 def dashboard() -> str:
     views = []
     for name, (url, mode) in VARIANTS.items():
+        extra = CARD_EXTRA.get(name, "")
         views.append(
             f"""  - title: {name}
     path: {name}
     cards:
       - type: custom:dahua-vto-talk-card
-        camera_card:
+{extra}        camera_card:
           type: custom:webrtc-camera
           url: "{url}"
           mode: "{mode}"
@@ -151,6 +157,14 @@ async def login(http: aiohttp.ClientSession) -> dict:
         tokens = await r.json()
     tokens.update({"hassUrl": HA, "clientId": client_id, "expires": 0})
     return tokens
+
+
+async def set_preview_slider(http: aiohttp.ClientSession, token: str, value: float) -> None:
+    head = {"Authorization": f"Bearer {token}"}
+    async with http.get(f"{HA}/api/states", headers=head) as r:
+        ids = [s["entity_id"] for s in await r.json() if s["entity_id"].startswith("number.") and "podgladu" in s["entity_id"]]
+    async with http.post(f"{HA}/api/services/number/set_value", headers=head, json={"entity_id": ids[0], "value": value}) as r:
+        assert r.status == 200, await r.text()
 
 
 MEASURE = """
@@ -229,10 +243,34 @@ async def check(cdp: Cdp, name: str) -> dict:
         await asyncio.sleep(2.5)
     after = await cdp.js(MEASURE + '(true)')
     after["taps"] = taps
+    after["boost"] = await cdp.js("""(async () => {
+      const c = window.__vtoCard(); const b = c._boost;
+      if (!b) return {active: false, error: c._boostError || null};
+      const buf = new Float32Array(b.an.fftSize); let sum = 0;
+      await new Promise(r => setTimeout(r, 300));
+      b.an.getFloatTimeDomainData(buf); for (const x of buf) sum += x * x;
+      const out = Math.sqrt(sum / buf.length);
+      // the raw (unboosted) sound of the same track
+      const ctx = new AudioContext(); await ctx.resume();
+      const an = ctx.createAnalyser(); an.fftSize = 2048;
+      ctx.createMediaStreamSource(new MediaStream([b.track])).connect(an);
+      await new Promise(r => setTimeout(r, 300));
+      const raw = new Float32Array(2048); an.getFloatTimeDomainData(raw);
+      let s2 = 0; for (const x of raw) s2 += x * x; ctx.close();
+      return {active: !!b.active, db: b.db, ctx: b.ctx.state, videoMuted: b.video.muted,
+              outRms: Math.round(Math.sqrt(s2 / raw.length) * 1000) / 1000 && Math.round(out * 1000) / 1000,
+              rawRms: Math.round(Math.sqrt(s2 / raw.length) * 1000) / 1000};
+    })()""")
     diag = await cdp.js("window.__vtoCard().shadowRoot.getElementById('stxt').textContent")
     after["webrtc_unlock"] = await cdp.js("window.__vtoCard()._rtcUnlock || null")
     shot = await cdp.call("Page.captureScreenshot", format="png")
     Path(f"/tmp/preview_{name}.png").write_bytes(base64.b64decode(shot["data"]))
+    if name.startswith("boost"):
+        bst = after["boost"]
+        audible = bool(bst.get("active")) and bst.get("videoMuted") and bst.get("ctx") == "running" and (
+            bst.get("outRms", 0) > 3 * bst.get("rawRms", 1)
+        )
+        return {"before_click": before, "after_click": after, "card_diag": diag, "audible": audible}
     audible = (
         not after.get("muted", True)
         and after.get("volume", 0) > 0
@@ -275,7 +313,15 @@ async def run() -> int:
                 await cdp.call("Page.navigate", url=f"{HA}/auth/authorize?response_type=code&client_id={HA}/")
                 await asyncio.sleep(2)
                 await cdp.js(f"localStorage.setItem('hassTokens', {json.dumps(json.dumps(tokens))}); true")
-                results = {name: await check(cdp, name) for name in VARIANTS}
+                results = {}
+                for name in VARIANTS:
+                    if name == "boost-slider":
+                        await set_preview_slider(http, tokens["access_token"], 12)
+                    try:
+                        results[name] = await check(cdp, name)
+                    finally:
+                        if name == "boost-slider":
+                            await set_preview_slider(http, tokens["access_token"], 0)
                 print(json.dumps(results, indent=1))
                 if cdp.console:
                     print("browser console:", *cdp.console[-15:], sep="\n  ")

@@ -13,7 +13,7 @@ from .entity import VtoTalkEntity
 
 
 async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities: AddEntitiesCallback) -> None:
-    async_add_entities([TalkGainNumber(entry.runtime_data)])
+    async_add_entities([TalkGainNumber(entry.runtime_data), PreviewGainNumber(entry.runtime_data)])
 
 
 class TalkGainNumber(VtoTalkEntity, RestoreNumber):
@@ -40,4 +40,32 @@ class TalkGainNumber(VtoTalkEntity, RestoreNumber):
 
     async def async_set_native_value(self, value: float) -> None:
         self.device.set_talk_gain(value)
+        self.async_write_ha_state()
+
+
+class PreviewGainNumber(VtoTalkEntity, RestoreNumber):
+    """How much the card boosts the door sound of the preview (in the browser)."""
+
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_icon = "mdi:volume-vibrate"
+    _attr_native_min_value = 0
+    _attr_native_max_value = 24
+    _attr_native_step = 1
+    _attr_native_unit_of_measurement = "dB"
+    _attr_mode = NumberMode.SLIDER
+
+    def __init__(self, device: VtoTalkDevice) -> None:
+        super().__init__(device, "preview_gain")
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last = await self.async_get_last_number_data()
+        self.device.preview_gain_db = float(last.native_value) if last is not None and last.native_value is not None else 0.0
+
+    @property
+    def native_value(self) -> float:
+        return self.device.preview_gain_db
+
+    async def async_set_native_value(self, value: float) -> None:
+        self.device.preview_gain_db = float(value)
         self.async_write_ha_state()

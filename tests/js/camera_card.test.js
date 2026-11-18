@@ -6,6 +6,7 @@ let created = null;
 w.loadCardHelpers = async () => ({ createCardElement: async (c) => { created = c; const e = w.document.createElement("div"); e.className = "inner"; return e; } });
 w.eval(fs.readFileSync("" + require("path").join(__dirname, "../../custom_components") + "/dahua_vto_talk/frontend/dahua-vto-talk-card.js", "utf8"));
 (async () => {
+  w.customElements.define("webrtc-camera", class extends w.HTMLElement {});
   const hass = { language: "pl", states: {}, connection: {} };
   const c = w.document.createElement("dahua-vto-talk-card");
   c.setConfig({ camera_card: { type: "custom:webrtc-camera", url: "x" } });

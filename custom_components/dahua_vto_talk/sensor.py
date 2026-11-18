@@ -17,7 +17,13 @@ from .entity import VtoTalkEntity
 async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities: AddEntitiesCallback) -> None:
     device: VtoTalkDevice = entry.runtime_data
     async_add_entities(
-        [TalkStatusSensor(device), MainCodecSensor(device), BackchannelSensor(device), CodecRevertsSensor(device)]
+        [
+            TalkStatusSensor(device),
+            MainCodecSensor(device),
+            BackchannelSensor(device),
+            CodecRevertsSensor(device),
+            SubStreamAudioSensor(device),
+        ]
     )
 
 
@@ -87,3 +93,17 @@ class CodecRevertsSensor(VtoTalkEntity, SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         last = self.device.last_revert
         return {"last_revert": last.isoformat() if last else None}
+
+
+class SubStreamAudioSensor(VtoTalkEntity, SensorEntity):
+    """Sound of the sub stream (subtype=1) the WebRTC preview plays."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:volume-high"
+
+    def __init__(self, device: VtoTalkDevice) -> None:
+        super().__init__(device, "sub_stream_audio")
+
+    @property
+    def native_value(self) -> str | None:
+        return self.device.sub_stream_audio

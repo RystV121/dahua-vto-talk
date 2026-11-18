@@ -128,6 +128,8 @@ async def test_watchdog_sets_codec_and_counts_reverts(hass: HomeAssistant, vto: 
     assert hass.states.get(entity(hass, "sensor", "codec_reverts")).state == "0"
     # the sub stream gets sound in G.711A too, so a WebRTC preview is not silent
     assert (vto.sub_enabled, vto.sub_compression, vto.sub_frequency) == ("true", "G.711A", "8000")
+    # and the sub stream's own RTSP description now really offers that sound
+    assert hass.states.get(entity(hass, "sensor", "sub_stream_audio")).state == "PCMA/8000"
 
     # the real VTO went back to PCM on its own; the watchdog notices and fixes it
     vto.compression, vto.frequency = "PCM", 16000
@@ -220,6 +222,14 @@ async def test_sub_stream_fix_can_be_turned_off(hass: HomeAssistant, vto: FakeVt
     await hass.async_block_till_done(wait_background_tasks=True)
     assert vto.compression == "G.711A"
     assert (vto.sub_enabled, vto.sub_compression) == ("false", "PCM")
+    assert hass.states.get(entity(hass, "sensor", "sub_stream_audio")).state == "unknown"
+
+
+async def test_sub_stream_audio_probe_reports_missing_sound(hass: HomeAssistant, vto: FakeVto) -> None:
+    entry = await setup_entry(hass, vto, {"fix_sub_stream_audio": False})
+    assert await entry.runtime_data.probe_sub_stream_audio() == "none"
+    vto.sub_enabled, vto.sub_compression, vto.sub_frequency = "true", "PCM", "16000"
+    assert await entry.runtime_data.probe_sub_stream_audio() == "L16/16000"
 
 
 async def test_websocket_talk_end_to_end(hass: HomeAssistant, vto: FakeVto, hass_ws_client, hass_client) -> None:

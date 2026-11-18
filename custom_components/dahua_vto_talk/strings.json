@@ -95,6 +95,9 @@
       "backchannel_format": {
         "name": "Talk track format"
       },
+      "sub_stream_audio": {
+        "name": "Sub stream sound"
+      },
       "codec_reverts": {
         "name": "Codec reverts"
       }

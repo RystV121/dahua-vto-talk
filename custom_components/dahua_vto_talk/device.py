@@ -110,6 +110,8 @@ class VtoTalkDevice:
         self._original_codec: tuple[str, str] | None = None
         self.fix_sub_stream: bool = opts.get(CONF_FIX_SUB_STREAM, True)
         self.sub_codec: str | None = None
+        # what the sub stream really carries (from its RTSP description)
+        self.sub_stream_audio: str | None = None
         # what the last card session actually sent (16-bit LE PCM), for the
         # card's "play back what went to the gate" check
         self.last_talk_pcm: bytes = b""
@@ -196,6 +198,8 @@ class VtoTalkDevice:
             return False  # no sub stream on this model
         if comp == WANTED_COMPRESSION and freq == WANTED_FREQUENCY and enabled == "true":
             self.sub_codec = f"{comp}/{freq}"
+            if self.sub_stream_audio is None:
+                await self.probe_sub_stream_audio()
             return False
         await self.http.set_config(
             {
@@ -206,7 +210,25 @@ class VtoTalkDevice:
         )
         _LOGGER.info("%s sub stream audio was %s/%s (enabled=%s); set to G.711A/8000", self.host, comp, freq, enabled)
         self.sub_codec = f"{WANTED_COMPRESSION}/{WANTED_FREQUENCY}"
+        await asyncio.sleep(1)  # the VTO restarts the stream after setConfig
+        await self.probe_sub_stream_audio()
         return True
+
+    async def probe_sub_stream_audio(self) -> str:
+        """DESCRIBE the sub stream: does it carry sound, and in what format."""
+        from .vto.sdp import find_receive_audio  # noqa: PLC0415
+
+        session = BackchannelSession(
+            self.host, self.rtsp_port, self.username, self.password, channel=self.channel, subtype=1
+        )
+        try:
+            audio = find_receive_audio(await session.describe_only())
+        except (RtspError, OSError, TimeoutError) as err:
+            _LOGGER.debug("Sub stream DESCRIBE on %s failed: %s", self.host, err)
+            return self.sub_stream_audio or "?"
+        self.sub_stream_audio = audio.describe() if audio else "none"
+        self._refresh()
+        return self.sub_stream_audio
 
     @property
     def _encode_format(self) -> tuple[str, int]:
@@ -470,6 +492,7 @@ class VtoTalkDevice:
             "talk_state": self.talk_state,
             "main_codec": self.main_codec,
             "sub_stream_codec": self.sub_codec,
+            "sub_stream_audio": self.sub_stream_audio,
             "last_talk_seconds": round(len(self.last_talk_pcm) / 2 / self.last_talk_rate, 1),
             "last_talk_peak": self.last_talk_peak,
             "backchannel_format": self.backchannel_format,

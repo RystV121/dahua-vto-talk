@@ -227,7 +227,7 @@ class FakeVto:
                     backchannel = "www.onvif.org/ver20/backchannel" in headers.get("require", "")
                     path = url.split("://", 1)[1].split("/", 1)[1]
                     content_base = f"rtsp://127.0.0.1:{self.rtsp_port}/{path}/"
-                    body = self._sdp(backchannel).encode()
+                    body = self._sdp(backchannel, sub="subtype=1" in url).encode()
                     reply(
                         "200 OK",
                         {"Content-Base": content_base, "Content-Type": "application/sdp", "Cache-Control": "must-revalidate"},
@@ -293,8 +293,15 @@ class FakeVto:
         ha2 = md5(f"{method}:{uri}")
         return params.get("response") == md5(f"{ha1}:{nonce}:{ha2}")
 
-    def _sdp(self, backchannel: bool) -> str:
+    def _sdp(self, backchannel: bool, sub: bool = False) -> str:
         pt, rtpmap = self.backchannel_rtpmap
+        stream_audio = [f"m=audio 0 RTP/AVP {pt}", "a=control:trackID=1", f"a=rtpmap:{pt} {rtpmap}", "a=recvonly"]
+        if sub:
+            if self.sub_enabled != "true":
+                stream_audio = []
+            else:
+                spt, smap = (8, "PCMA/8000") if self.sub_compression == "G.711A" else (97, f"L16/{self.sub_frequency}")
+                stream_audio = [f"m=audio 0 RTP/AVP {spt}", "a=control:trackID=1", f"a=rtpmap:{spt} {smap}", "a=recvonly"]
         lines = [
             "v=0",
             "o=- 2251940710 2251940710 IN IP4 0.0.0.0",
@@ -310,10 +317,7 @@ class FakeVto:
             "a=framerate:30.000000",
             "a=rtpmap:96 H264/90000",
             "a=recvonly",
-            f"m=audio 0 RTP/AVP {pt}",
-            "a=control:trackID=1",
-            f"a=rtpmap:{pt} {rtpmap}",
-            "a=recvonly",
+            *stream_audio,
             "m=application 0 RTP/AVP 107",
             "a=control:trackID=4",
             "a=rtpmap:107 vnd.onvif.metadata/90000",

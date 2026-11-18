@@ -231,7 +231,7 @@ async def test_second_talker_is_refused(vto: FakeVto) -> None:
 
 async def test_no_backchannel_raises() -> None:
     fake = FakeVto()
-    fake._sdp = lambda backchannel: FakeVto._sdp(fake, False)  # type: ignore[method-assign]
+    fake._sdp = lambda backchannel, sub=False: FakeVto._sdp(fake, False, sub)  # type: ignore[method-assign]
     await fake.start()
     try:
         session = BackchannelSession("127.0.0.1", fake.rtsp_port, "admin", "T3st@pass")

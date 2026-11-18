@@ -226,6 +226,10 @@ aktualizuje się razem z integracją). Lista zmian: [CHANGELOG.md](CHANGELOG.md)
 
 ## Testy (dla programistów)
 
+Podgląd z dźwiękiem w prawdziwej przeglądarce (go2rtc + WebRTC Camera + HA +
+Chrome, analiza dźwięku z `<video>` po kliknięciu 🔊):
+`tests/e2e/preview_audio_e2e.py` (opis uruchomienia w nagłówku pliku).
+
 ```
 pip install pytest-homeassistant-custom-component pytest-timeout
 pytest tests                                   # 41 testów, w tym atrapa VTO

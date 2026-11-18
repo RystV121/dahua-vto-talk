@@ -95,6 +95,9 @@
       "backchannel_format": {
         "name": "Format ścieżki mówienia"
       },
+      "sub_stream_audio": {
+        "name": "Dźwięk podstrumienia (podgląd)"
+      },
       "codec_reverts": {
         "name": "Powroty kodeka"
       }

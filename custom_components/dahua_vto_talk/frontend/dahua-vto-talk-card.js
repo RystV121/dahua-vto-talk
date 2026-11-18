@@ -18,7 +18,7 @@
  * entry_id: ...                           # only with several door stations
  */
 
-const CARD_VERSION = "0.1.4";
+const CARD_VERSION = "0.1.5";
 
 const WORKLET_SOURCE = `
 class VtoPcmSender extends AudioWorkletProcessor {
@@ -234,6 +234,7 @@ class DahuaVtoTalkCard extends HTMLElement {
         .status.err { color: var(--error-color, #c62828); }
         .meter { width: 60px; height: 6px; background: var(--divider-color); border-radius: 3px; overflow: hidden; }
         .summary { padding: 0 16px 12px; font-size: 13px; color: var(--secondary-text-color); display:flex; gap:8px; align-items:center; flex-wrap: wrap; }
+        .summary[hidden] { display: none; }
         .summary.warn { color: var(--warning-color, #f57c00); }
         .summary button { border: 0; border-radius: 16px; padding: 6px 12px; font-size: 13px; cursor: pointer;
           background: var(--secondary-background-color, #444); color: var(--primary-text-color); }
@@ -274,7 +275,23 @@ class DahuaVtoTalkCard extends HTMLElement {
     if (!holder) return;
     if (this._config.camera_card) {
       // a user-chosen card (e.g. custom:webrtc-camera with a light sub stream)
+      if (!holder._llRebuild) {
+        // a custom card whose JS is not loaded yet comes back as an error card
+        // that fires "ll-rebuild" once the element is defined: mount again then
+        holder._llRebuild = true;
+        holder.addEventListener("ll-rebuild", (ev) => {
+          ev.stopPropagation();
+          this._mountCamera();
+        });
+      }
       try {
+        const type = String(this._config.camera_card.type || "");
+        if (type.startsWith("custom:")) {
+          await Promise.race([
+            customElements.whenDefined(type.slice(7)),
+            new Promise((r) => setTimeout(r, 5000)),
+          ]);
+        }
         const helpers = await window.loadCardHelpers();
         const el = await helpers.createCardElement(this._config.camera_card);
         el.hass = this._hass;

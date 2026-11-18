@@ -118,6 +118,10 @@ console.log("worklet resampler: ok");
   const root = card.shadowRoot;
   const talk = root.getElementById("talk");
   assert(talk.textContent.includes("Mów"), talk.textContent);
+  // nothing said yet: no summary / playback button
+  assert.strictEqual(root.getElementById("summary").hidden, true);
+  const css = root.querySelector("style").textContent;
+  assert(/\.summary\[hidden\]\s*\{\s*display:\s*none/.test(css), "hidden must win over display:flex");
 
   talk.click();
   await new Promise((r) => setTimeout(r, 10));

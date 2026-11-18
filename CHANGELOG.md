@@ -1,5 +1,14 @@
 # Zmiany
 
+## 0.1.5
+- Nowy czujnik „Dźwięk podstrumienia (podgląd)”: pokazuje, czy podstrumień
+  domofonu naprawdę ma dźwięk i w jakim formacie (np. `PCMA/8000` albo `none`).
+- Podgląd z `camera_card` (np. WebRTC Camera) pojawia się także wtedy, gdy jego
+  karta wczyta się później niż nasza (wcześniej trzeba było przeładować stronę).
+- Przycisk „Odsłuchaj” nie pokazuje się, zanim cokolwiek powiesz.
+- Nowy test w prawdziwej przeglądarce: dźwięk z podglądu WebRTC po kliknięciu 🔊
+  (go2rtc + WebRTC Camera + Home Assistant + Chrome).
+
 ## 0.1.4
 - Własna ikona integracji (widoczna w HA 2026.3+ na liście integracji i w HACS).
 - Numeracja wersji na GitHubie: każda nowa wersja dostaje tag i wydanie (release),

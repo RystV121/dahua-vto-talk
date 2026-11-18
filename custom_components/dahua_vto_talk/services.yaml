@@ -1,0 +1,64 @@
+play_test_tone:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: dahua_vto_talk
+    seconds:
+      default: 3
+      selector:
+        number:
+          min: 0.5
+          max: 20
+          step: 0.5
+          unit_of_measurement: s
+    frequency:
+      default: 800
+      selector:
+        number:
+          min: 100
+          max: 3500
+          unit_of_measurement: Hz
+    transport:
+      default: rtsp
+      selector:
+        select:
+          options:
+            - rtsp
+            - http
+    packet_bytes:
+      selector:
+        select:
+          options:
+            - "160"
+            - "320"
+            - "512"
+            - "1024"
+    zero_timestamp:
+      selector:
+        boolean:
+
+play_media:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: dahua_vto_talk
+    media_content_id:
+      required: true
+      selector:
+        text:
+
+fix_codec:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: dahua_vto_talk
+
+stop:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: dahua_vto_talk

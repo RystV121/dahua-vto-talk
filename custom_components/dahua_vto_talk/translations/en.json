@@ -1,0 +1,172 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Dahua door station (VTO)",
+        "description": "Address and login of the door station itself (the same as its web page).",
+        "data": {
+          "host": "Address (IP)",
+          "username": "User name",
+          "password": "Password",
+          "rtsp_port": "RTSP port",
+          "http_port": "HTTP port",
+          "channel": "Channel"
+        }
+      },
+      "reconfigure": {
+        "title": "Change door station settings",
+        "data": {
+          "host": "Address (IP)",
+          "username": "User name",
+          "password": "Password",
+          "rtsp_port": "RTSP port",
+          "http_port": "HTTP port",
+          "channel": "Channel"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot reach the door station over RTSP.",
+      "invalid_auth": "The door station refused the user name or password.",
+      "no_backchannel": "The door station did not offer an ONVIF talk track (backchannel)."
+    },
+    "abort": {
+      "already_configured": "Already configured",
+      "reconfigure_successful": "Saved"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Talk settings",
+        "data": {
+          "force_codec_before_talk": "Set G.711A 8 kHz before every talk",
+          "watchdog_interval": "Codec watchdog interval (s)",
+          "cancel_call_entity": "Button that cancels the VTO call (pressed before talking)",
+          "packet_bytes": "RTP packet size (bytes)",
+          "zero_timestamp": "RTP timestamp always 0 (go2rtc style)",
+          "l16_little_endian": "L16 little-endian (only if the VTO stays on L16)",
+          "setup_receive_audio": "Also SETUP the door microphone track",
+          "subtype": "RTSP stream (0 main, 1 sub)",
+          "restore_codec_after_talk": "Restore the original codec after talking (for DMSS)"
+        },
+        "data_description": {
+          "packet_bytes": "1024 is what go2rtc sends to Dahua doorbells. Smaller = lower delay.",
+          "cancel_call_entity": "For example the Dahua integration's 'Cancel Call' button.",
+          "restore_codec_after_talk": "If DMSS crackles on G.711A: G.711A only while Home Assistant talks. Disables the codec watchdog."
+        }
+      }
+    }
+  },
+  "entity": {
+    "button": {
+      "test_tone": {
+        "name": "Test tone"
+      },
+      "test_tone_http": {
+        "name": "Test tone (HTTP postAudio)"
+      },
+      "test_tone_small_packets": {
+        "name": "Test tone (20 ms packets)"
+      },
+      "fix_codec": {
+        "name": "Set G.711A codec now"
+      },
+      "stop_talk": {
+        "name": "Stop talking"
+      }
+    },
+    "sensor": {
+      "talk_status": {
+        "name": "Talk",
+        "state": {
+          "idle": "Idle",
+          "connecting": "Connecting",
+          "talking": "Talking",
+          "playing": "Playing",
+          "error": "Error"
+        }
+      },
+      "main_codec": {
+        "name": "Main stream audio codec"
+      },
+      "backchannel_format": {
+        "name": "Talk track format"
+      },
+      "codec_reverts": {
+        "name": "Codec reverts"
+      }
+    },
+    "switch": {
+      "keep_codec": {
+        "name": "Keep G.711A codec"
+      }
+    }
+  },
+  "services": {
+    "play_test_tone": {
+      "name": "Play test tone",
+      "description": "Beeps through the door speaker to check the talk path.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Config entry",
+          "description": "Only needed with more than one door station."
+        },
+        "seconds": {
+          "name": "Seconds",
+          "description": "Length"
+        },
+        "frequency": {
+          "name": "Frequency",
+          "description": "Hz"
+        },
+        "transport": {
+          "name": "Transport",
+          "description": "rtsp = backchannel (recommended), http = audio.cgi postAudio"
+        },
+        "packet_bytes": {
+          "name": "Packet bytes",
+          "description": "160/320/512/1024"
+        },
+        "zero_timestamp": {
+          "name": "Zero timestamp",
+          "description": "go2rtc style"
+        }
+      }
+    },
+    "play_media": {
+      "name": "Play media at the door",
+      "description": "Plays a file, URL or TTS through the door speaker.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Config entry",
+          "description": "Only needed with more than one door station."
+        },
+        "media_content_id": {
+          "name": "Media",
+          "description": "media-source://... / http(s)://..."
+        }
+      }
+    },
+    "fix_codec": {
+      "name": "Set G.711A codec",
+      "description": "Sets the main stream audio to G.711A 8 kHz and reports the talk track format.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Config entry",
+          "description": "Only needed with more than one door station."
+        }
+      }
+    },
+    "stop": {
+      "name": "Stop talking",
+      "description": "Closes the talk channel.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Config entry",
+          "description": "Only needed with more than one door station."
+        }
+      }
+    }
+  }
+}

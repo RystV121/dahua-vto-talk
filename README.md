@@ -1,0 +1,199 @@
+# Dahua VTO Talk – rozmowa w dwie strony z domofonem Dahua w Home Assistant
+
+Integracja dodaje do Home Assistanta brakującą połowę domofonu: **Twój głos do
+furtki**. Obraz i dźwięk z furtki dalej bierzesz z kamery, którą już masz
+(integracja Dahua od rrollera). Ta integracja mówi do domofonu sama, bez go2rtc,
+bez serwera SIP i bez Asteriska.
+
+Zrobiona pod **Dahua VTO2202F-P** (firmware 4.511), ale powinna działać z każdym
+VTO, który ma kanał zwrotny ONVIF (VTO2202F-P-S2/S3, VTO2211G, VTO2311R…).
+
+## Co rozwiązuje (dlaczego wcześniej nie działało)
+
+1. **Kodek.** Twój VTO wysyła i przyjmuje dźwięk jako `L16/16000` (PCM). W tym
+   formacie połączenie się zestawia, ale **głośnik przy furtce milczy**. Działa
+   tylko G.711A 8 kHz. Do tego VTO **sam wraca do PCM** po kilku minutach (było
+   to widać w nocy: zmiana na G.711A, a po 2 minutach znowu L16).
+   → Integracja ustawia G.711A tuż **przed każdą rozmową**, sprawdza, co domofon
+   faktycznie oferuje, i dodatkowo pilnuje kodeka w tle (strażnik co 30 s).
+2. **go2rtc nie umie mówić w L16.** Nawet gdy wszystko wygląda dobrze,
+   przeglądarka nie potrafi wysłać L16, a go2rtc go nie przekoduje.
+   → Integracja ma **własne połączenie RTSP** z domofonem i **sama koduje**
+   dźwięk w formacie, którego chce VTO.
+3. **Kanał mówienia może mieć tylko jeden klient naraz.** Jeśli podgląd kamery
+   w HA otwiera kanał zwrotny, nikt inny nie może mówić.
+   → Instrukcja niżej mówi, co wyłączyć. Integracja pokazuje czytelny błąd
+   „kanał mówienia zajęty”.
+
+Jak to działa:
+
+```
+iPad / telefon (karta)          Home Assistant                       VTO przy furtce
+mikrofon → AudioWorklet  ──►  websocket (binarnie, jak Assist) ──►  RTSP DESCRIBE/SETUP/PLAY
+48 kHz → 8 kHz PCM16           koder G.711A, równe tempo            trackID=5 (a=sendonly)
+                               pakiety jak go2rtc (1024 B)    ──►  głośnik
+```
+
+## Instalacja
+
+**Przez HACS (zalecane, aktualizacje jednym kliknięciem):**
+1. HACS → ⋮ (prawy górny róg) → **Niestandardowe repozytoria**.
+2. Repozytorium: `https://github.com/RystV121/dahua-vto-talk`, typ: **Integration** → Dodaj.
+3. Znajdź „Dahua VTO Talk” → **Pobierz**.
+4. Uruchom ponownie Home Assistanta.
+
+**Ręcznie:** skopiuj folder `custom_components/dahua_vto_talk` do
+`/config/custom_components/` (Samba, Studio Code Server, SSH) i uruchom HA ponownie.
+
+**Konfiguracja:**
+
+1. **Ustawienia → Urządzenia i usługi → Dodaj integrację → „Dahua VTO Talk”.**
+   - Adres: IP domofonu (np. `192.168.1.108`)
+   - Użytkownik i hasło: te same co do strony www domofonu (`admin` …)
+   - Port RTSP `554`, port HTTP `80`, kanał `1`
+
+   Integracja od razu sprawdza, czy domofon wystawia kanał do mówienia. Jeśli nie,
+   powie to wprost.
+2. **W integracji Dahua (rroller)** → urządzenie Domofon → Konfiguruj: włącz
+   **„Don't open the two-way audio channel when streaming”**. Dzięki temu podgląd
+   kamery nie zajmuje kanału mówienia. (Wbudowany przycisk mówienia z Labs zniknie
+   i dobrze, bo zastępuje go ta integracja.)
+3. Na kamerze domofonu (integracja Dahua) **wyłącz „Preload stream”**: ciągle otwarty podgląd potrafi trzymać kanał domofonu.
+
+## Pierwszy test (2 minuty, zrób to najpierw)
+
+Urządzenie „Domofon – rozmowa” ma przycisk **„Ton testowy”**. Naciśnij go i
+posłuchaj przy furtce (albo połóż tam telefon z dyktafonem):
+
+| Co słychać przy furtce | Co to znaczy |
+|---|---|
+| 3 sekundy pikania | **Działa.** Przejdź do karty. |
+| Nic | Spróbuj **„Ton testowy (pakiety 20 ms)”**, potem **„Ton testowy (HTTP postAudio)”**. Napisz, który zadziałał. |
+| Szum / trzaski zamiast pikania | Domofon został na L16. Sprawdź sensor „Format ścieżki mówienia” (powinno być `PCMA/8000`) i naciśnij „Ustaw kodek G.711A teraz”. |
+| Błąd „kanał mówienia jest zajęty” | Zamknij DMSS i podgląd z kanałem zwrotnym (punkt 4 instalacji). |
+
+Przydatne sensory (diagnostyczne):
+- **Rozmowa**: bezczynny / łączenie / mówisz / błąd (w atrybutach ostatni błąd, liczba pakietów, poziom mikrofonu),
+- **Kodek audio strumienia głównego**: powinno być `G.711A/8000`,
+- **Format ścieżki mówienia**: powinno być `PCMA/8000`,
+- **Powroty kodeka**: ile razy domofon sam wrócił do PCM (strażnik naprawia).
+
+## Karta na dashboard
+
+Dashboard → Edytuj → Dodaj kartę → Ręcznie:
+
+```yaml
+type: custom:dahua-vto-talk-card
+camera_entity: camera.domofon_main          # kamera z integracji Dahua
+open_door_entity: button.domofon_open_door  # przycisk "Open Door" z integracji Dahua
+mode: toggle            # toggle = klik start/stop, hold = trzymaj, żeby mówić
+mute_while_talking: false
+```
+
+Nazwy encji sprawdź u siebie (Ustawienia → Urządzenia → Domofon). Karta ładuje
+się sama, nie trzeba dodawać jej w „Zasobach”.
+
+Na karcie: obraz z furtki z dźwiękiem, duży przycisk **🎤 Mów**, **🔓 Otwórz furtkę**,
+pasek poziomu mikrofonu i status (`Mówisz • PCMA/8000 • pakiety: …`).
+
+### Opcja: przed mówieniem zakończ dzwonienie
+
+Ustawienia → Dahua VTO Talk → Konfiguruj → **„Przycisk kończący połączenie VTO”**
+→ wybierz `button.domofon_cancel_call`. Integracja naciśnie go przed otwarciem
+kanału mówienia (tak robi działający setup felipecrs na tym samym modelu).
+Uwaga: zakończy to też dzwonienie w DMSS na telefonach.
+
+## iPad: aplikacja HA czy Safari?
+
+Mikrofon w przeglądarce wymaga **HTTPS** (np. `https://twoj-ha.example.com` albo Nabu Casa).
+
+- **Aplikacja Home Assistant**: najpierw spróbuj tu. Przy pierwszym „Mów” iOS
+  powinien zapytać o mikrofon. Jeśli karta pokaże „Brak dostępu do mikrofonu”:
+  iPad → Ustawienia → Home Assistant → Mikrofon → włącz.
+- **Plan B: Safari.** Otwórz HA w Safari → Udostępnij → **Do ekranu początkowego**.
+  Taka „aplikacja” na pewno dostaje mikrofon (to standard WebKit). Na wiszącego
+  iPada włącz do tego **Dostęp z przewodnikiem**.
+- **Brave na komputerze** blokował dźwięk w nocy. Do HA używaj Chrome albo
+  wyłącz tarcze Brave dla adresu HA.
+
+## Okienko na iPadzie, gdy ktoś dzwoni (opcjonalnie)
+
+Wymaga **browser_mod** (HACS). Przykład automatyzacji:
+
+```yaml
+alias: Domofon – okno na iPadzie
+triggers:
+  - trigger: state
+    entity_id: event.domofon_doorbell     # sprawdź swoją encję zdarzenia "Doorbell"
+actions:
+  - action: browser_mod.popup
+    data:
+      browser_id: ipad_sciana             # ID przeglądarki iPada z browser_mod
+      title: Ktoś dzwoni
+      timeout: 60000                      # samo się zamknie po minucie
+      content:
+        type: custom:dahua-vto-talk-card
+        camera_entity: camera.domofon_main
+        open_door_entity: button.domofon_open_door
+```
+
+## Usługi (np. do automatyzacji)
+
+- `dahua_vto_talk.play_test_tone`: ton testowy (`seconds`, `frequency`, `transport: rtsp|http`, `packet_bytes`, `zero_timestamp`)
+- `dahua_vto_talk.play_media`: odtwórz plik / URL / **TTS** w głośniku domofonu, np. „Paczkę proszę zostawić przy furtce”
+- `dahua_vto_talk.fix_codec`: ustaw G.711A i zwróć, co domofon oferuje
+- `dahua_vto_talk.stop`: zamknij kanał mówienia
+
+## Ustawienia (Konfiguruj)
+
+| Opcja | Domyślnie | Po co |
+|---|---|---|
+| Ustaw G.711A przed każdą rozmową | tak | Najważniejsza poprawka. |
+| Przywróć oryginalny kodek po rozmowie | nie | Gdy DMSS trzeszczy na G.711A: kodek jest G.711A tylko na czas rozmowy z HA. Wyłącza strażnika. |
+| Co ile sekund pilnować kodeka | 30 | Strażnik w tle (przełącznik „Pilnuj kodeka G.711A”). |
+| Rozmiar pakietu RTP | 1024 | Tyle wysyła go2rtc do domofonów Dahua. Mniej = mniejsze opóźnienie (spróbuj 320). |
+| Znacznik czasu RTP zawsze 0 | tak | Jak go2rtc. |
+| L16 little-endian | nie | Tylko jeśli domofon uparcie zostaje na L16. |
+| Zestawiaj też ścieżkę mikrofonu domofonu | nie | Gdyby jakiś firmware nie przyjmował samej ścieżki do mówienia. |
+
+## Jak to było testowane (bez Twojego domofonu)
+
+- **Atrapa VTO2202F** odtwarzająca jego zachowanie z nocy: dokładnie to samo SDP,
+  digest RTSP ważny tylko na jednym połączeniu, `Content-Base` zakończone
+  `proto=Onvif/`, start w PCM 16 kHz, samoczynny powrót do PCM, jeden mówiący
+  naraz, a głośnik gra tylko G.711 8 kHz.
+- **Prawdziwe go2rtc 1.9.15** przeciw atrapie: dogaduje się tak jak z prawdziwym
+  Dahua i przy L16 też jest cisza, więc atrapa jest wierna. Pakiety go2rtc
+  (1024 B, znacznik czasu 0, marker) są identyczne z pakietami tej integracji,
+  ta sama sekwencja żądań RTSP.
+- **39 testów automatycznych** w prawdziwym Home Assistant (config flow, opcje,
+  strażnik, ton testowy, websocket, zajęty kanał, złe hasło, rozłączenie,
+  przywracanie kodeka, diagnostyka).
+- **Pełny test w prawdziwym Chrome**: uruchomiony Home Assistant z frontendem,
+  karta na dashboardzie, udawany mikrofon grający 600 Hz, prawdziwe kliknięcie
+  „Mów”. Atrapa domofonu „usłyszała” 600 Hz w PCMA, a po „Stop” kanał się zwolnił.
+  Ten test wyłapał błąd, przez który karta by się nie pokazała („Configuration
+  error”); jest poprawiony.
+
+Nie było testu na prawdziwym domofonie. To zrobimy razem: zacznij od „Tonu
+testowego”.
+
+## Diagnostyka do wysłania
+
+Ustawienia → Urządzenia → „Domofon – rozmowa” → ⋮ → **Pobierz diagnostykę**.
+Plik zawiera aktualne ustawienia audio z domofonu i pełną odpowiedź RTSP (bez hasła).
+
+## Aktualizacje
+
+HACS sam pokaże „Dostępna aktualizacja”, gdy pojawi się nowe wydanie. Kliknij
+Aktualizuj, uruchom HA ponownie i przeładuj aplikację/przeglądarkę (karta
+aktualizuje się razem z integracją).
+
+## Testy (dla programistów)
+
+```
+pip install pytest-homeassistant-custom-component pytest-timeout
+pytest tests                                   # 39 testów, w tym atrapa VTO
+GO2RTC_BIN=/ścieżka/go2rtc pytest tests        # + porównanie z prawdziwym go2rtc
+npm i jsdom && node tests/js/card.test.js      # karta: resampler, przyciski, kamera
+```

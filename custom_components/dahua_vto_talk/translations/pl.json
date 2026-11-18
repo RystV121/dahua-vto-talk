@@ -1,0 +1,172 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Domofon Dahua (VTO)",
+        "description": "Adres i login samego domofonu (te same co do jego strony www).",
+        "data": {
+          "host": "Adres (IP)",
+          "username": "Użytkownik",
+          "password": "Hasło",
+          "rtsp_port": "Port RTSP",
+          "http_port": "Port HTTP",
+          "channel": "Kanał"
+        }
+      },
+      "reconfigure": {
+        "title": "Zmień dane domofonu",
+        "data": {
+          "host": "Adres (IP)",
+          "username": "Użytkownik",
+          "password": "Hasło",
+          "rtsp_port": "Port RTSP",
+          "http_port": "Port HTTP",
+          "channel": "Kanał"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Brak połączenia RTSP z domofonem.",
+      "invalid_auth": "Domofon odrzucił login lub hasło.",
+      "no_backchannel": "Domofon nie wystawił ścieżki do mówienia (ONVIF backchannel)."
+    },
+    "abort": {
+      "already_configured": "Już skonfigurowane",
+      "reconfigure_successful": "Zapisano"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Ustawienia rozmowy",
+        "data": {
+          "force_codec_before_talk": "Ustaw G.711A 8 kHz przed każdą rozmową",
+          "watchdog_interval": "Co ile sekund pilnować kodeka",
+          "cancel_call_entity": "Przycisk kończący połączenie VTO (naciskany przed mówieniem)",
+          "packet_bytes": "Rozmiar pakietu RTP (bajty)",
+          "zero_timestamp": "Znacznik czasu RTP zawsze 0 (jak go2rtc)",
+          "l16_little_endian": "L16 little-endian (tylko gdy VTO zostaje na L16)",
+          "setup_receive_audio": "Zestawiaj też ścieżkę mikrofonu domofonu",
+          "subtype": "Strumień RTSP (0 główny, 1 pomocniczy)",
+          "restore_codec_after_talk": "Przywróć oryginalny kodek po rozmowie (dla DMSS)"
+        },
+        "data_description": {
+          "packet_bytes": "1024 to tyle, ile go2rtc wysyła do dzwonków Dahua. Mniej = mniejsze opóźnienie.",
+          "cancel_call_entity": "Np. przycisk 'Cancel Call' z integracji Dahua.",
+          "restore_codec_after_talk": "Gdy DMSS trzeszczy na G.711A: kodek będzie G.711A tylko w czasie mówienia z HA. Wyłącza strażnika kodeka."
+        }
+      }
+    }
+  },
+  "entity": {
+    "button": {
+      "test_tone": {
+        "name": "Ton testowy"
+      },
+      "test_tone_http": {
+        "name": "Ton testowy (HTTP postAudio)"
+      },
+      "test_tone_small_packets": {
+        "name": "Ton testowy (pakiety 20 ms)"
+      },
+      "fix_codec": {
+        "name": "Ustaw kodek G.711A teraz"
+      },
+      "stop_talk": {
+        "name": "Zakończ mówienie"
+      }
+    },
+    "sensor": {
+      "talk_status": {
+        "name": "Rozmowa",
+        "state": {
+          "idle": "Bezczynny",
+          "connecting": "Łączenie",
+          "talking": "Mówisz",
+          "playing": "Odtwarzanie",
+          "error": "Błąd"
+        }
+      },
+      "main_codec": {
+        "name": "Kodek audio strumienia głównego"
+      },
+      "backchannel_format": {
+        "name": "Format ścieżki mówienia"
+      },
+      "codec_reverts": {
+        "name": "Powroty kodeka"
+      }
+    },
+    "switch": {
+      "keep_codec": {
+        "name": "Pilnuj kodeka G.711A"
+      }
+    }
+  },
+  "services": {
+    "play_test_tone": {
+      "name": "Zagraj ton testowy",
+      "description": "Pika w głośniku domofonu, żeby sprawdzić tor mówienia.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Config entry",
+          "description": "Potrzebne tylko przy kilku domofonach."
+        },
+        "seconds": {
+          "name": "Sekundy",
+          "description": "Długość"
+        },
+        "frequency": {
+          "name": "Częstotliwość",
+          "description": "Hz"
+        },
+        "transport": {
+          "name": "Transport",
+          "description": "rtsp = kanał zwrotny (zalecany), http = audio.cgi postAudio"
+        },
+        "packet_bytes": {
+          "name": "Rozmiar pakietu",
+          "description": "160/320/512/1024"
+        },
+        "zero_timestamp": {
+          "name": "Zerowy znacznik czasu",
+          "description": "jak go2rtc"
+        }
+      }
+    },
+    "play_media": {
+      "name": "Odtwórz dźwięk przy furtce",
+      "description": "Odtwarza plik, URL albo TTS w głośniku domofonu.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Config entry",
+          "description": "Potrzebne tylko przy kilku domofonach."
+        },
+        "media_content_id": {
+          "name": "Media",
+          "description": "media-source://... / http(s)://..."
+        }
+      }
+    },
+    "fix_codec": {
+      "name": "Ustaw kodek G.711A",
+      "description": "Ustawia audio strumienia głównego na G.711A 8 kHz i zwraca format ścieżki mówienia.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Config entry",
+          "description": "Potrzebne tylko przy kilku domofonach."
+        }
+      }
+    },
+    "stop": {
+      "name": "Zakończ mówienie",
+      "description": "Zamyka kanał mówienia.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Config entry",
+          "description": "Potrzebne tylko przy kilku domofonach."
+        }
+      }
+    }
+  }
+}

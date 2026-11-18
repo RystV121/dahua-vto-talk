@@ -1,0 +1,22 @@
+{
+  "domain": "dahua_vto_talk",
+  "name": "Dahua VTO Talk",
+  "after_dependencies": [
+    "frontend",
+    "ffmpeg"
+  ],
+  "codeowners": [
+    "@RystV121"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "http",
+    "websocket_api"
+  ],
+  "documentation": "https://github.com/RystV121/dahua-vto-talk",
+  "integration_type": "device",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/RystV121/dahua-vto-talk/issues",
+  "requirements": [],
+  "version": "0.1.1"
+}

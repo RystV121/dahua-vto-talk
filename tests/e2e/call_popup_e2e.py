@@ -7,6 +7,7 @@ simulated VTO must have heard the tone and be released; the call sensor must
 go ringing -> answered -> idle.
 
 Needs: HA on 127.0.0.1:18123 with the preview e2e config (views "domofon-cam"
+(its card has call_popup: true, so this browser opts in)
 and "elsewhere"), the fake VTO (tests/e2e/run_fake_vto.py), go2rtc for the
 preview (optional) and google-chrome.
 

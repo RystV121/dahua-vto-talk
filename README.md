@@ -221,7 +221,7 @@ Mikrofon w przeglądarce wymaga **HTTPS** (np. `https://twoj-ha.example.com` alb
 ## Okienko „Ktoś dzwoni” (iPad na ścianie i każdy inny ekran)
 
 Bez dodatkowych dodatków (browser_mod niepotrzebny). Gdy ktoś zadzwoni, na
-**każdym otwartym ekranie Home Assistanta** wyskakuje okienko z podglądem:
+**wybranych urządzeniach** (np. iPad na ścianie) wyskakuje okienko z podglądem:
 
 * **Odbierz** – włącza mikrofon i dźwięk z furtki (jedno stuknięcie),
 * **Mikrofon** – wycisza / włącza Twój mikrofon w trakcie rozmowy,
@@ -249,10 +249,22 @@ Ustawienie (raz):
      - action: dahua_vto_talk.ring
    ```
 
-2. Na iPadzie **otwórz raz widok z kartą** – okienko wygląda potem tak samo jak
-   ta karta (ta sama kamera, ten sam przycisk furtki).
-3. Dzwoneczek w rogu karty (**okienko / bez okienka**) włącza lub wyłącza
-   okienko na danym urządzeniu (np. wyłącz na telefonie, zostaw na iPadzie).
+2. **Wybierz, które urządzenie dzwoni** (domyślnie żadne – telefony i inne
+   tablety nie dzwonią). Na dashboardzie panelu ściennego dodaj do karty
+   `call_popup: true` i otwórz go raz na tym iPadzie:
+
+   ```yaml
+   type: custom:dahua-vto-talk-card
+   call_popup: true          # to urządzenie pokazuje okienko
+   camera_card:
+     type: custom:webrtc-camera
+     url: domofon_sub
+     muted: true
+   open_door_entity: button.domofon_open_door
+   ```
+
+   Okienko wygląda potem jak ta karta. Zamiast tego możesz też na dowolnym
+   urządzeniu stuknąć dzwoneczek w rogu karty (**okienko / bez okienka**).
 
 Test bez wychodzenia z domu: **Narzędzia deweloperskie → Akcje →
 `dahua_vto_talk.ring`**. Czujnik **„Połączenie”** (brak / dzwoni / odebrane)

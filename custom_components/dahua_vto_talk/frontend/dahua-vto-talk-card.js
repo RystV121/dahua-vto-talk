@@ -20,18 +20,20 @@
  * mute_while_talking: false               # mute door audio while you talk
  * entry_id: ...                           # only with several door stations
  *
+ * call_popup: true                        # this device shows the call popup
+ *
  * Call popup: when the integration's call state goes to "ringing" (doorbell
- * entity in its options, or the dahua_vto_talk.ring service), every open
- * Home Assistant screen that has shown this card once pops up the card in
- * call mode: Answer (mic + door sound on), mic mute, open, hang up. Each
- * device can turn the popup off with the bell chip on the card.
+ * entity in its options, or the dahua_vto_talk.ring service), the devices
+ * that opted in (call_popup: true on a card they showed, or the bell chip)
+ * pop up the card in call mode: Answer (mic + door sound on), mic mute,
+ * open, hang up. Other phones/tablets stay quiet.
  */
 
-const CARD_VERSION = "0.2.0";
+const CARD_VERSION = "0.2.1";
 
 // One id per open page: tells "answered here" from "answered on another screen".
 const CLIENT_ID = `c${Math.random().toString(36).slice(2, 10)}`;
-const POPUP_FLAG = "dahua_vto_talk_popup"; // "off" = no call popup on this device
+const POPUP_FLAG = "dahua_vto_talk_popup"; // "on" = this device shows the call popup
 const POPUP_CONFIG = "dahua_vto_talk_popup_config"; // the card config the popup uses
 
 function storageGet(key) {
@@ -40,9 +42,13 @@ function storageGet(key) {
 function storageSet(key, value) {
   try { window.localStorage.setItem(key, value); } catch (e) { /* private mode */ }
 }
+// Off by default: only the devices you choose ring (a wall-panel iPad), not
+// every phone and tablet logged in to Home Assistant. A card with
+// call_popup: true switches it on for the device that shows it; the bell chip
+// on the card toggles it by hand.
 function popupEnabled(value) {
   if (value !== undefined) storageSet(POPUP_FLAG, value ? "on" : "off");
-  return storageGet(POPUP_FLAG) !== "off";
+  return storageGet(POPUP_FLAG) === "on";
 }
 
 const WORKLET_SOURCE = `
@@ -250,9 +256,14 @@ class DahuaVtoTalkCard extends HTMLElement {
   setConfig(config) {
     this._config = { mode: "toggle", mute_while_talking: false, ...config };
     if (!config.popup) {
-      // the popup on this device looks like the last card shown here
-      const { popup, ...keep } = config;
-      storageSet(POPUP_CONFIG, JSON.stringify(keep));
+      if (config.call_popup === true || config.call_popup === false) popupEnabled(config.call_popup);
+      // the popup on this device looks like the card that switched it on
+      // (or, without call_popup, the last card shown here)
+      const { popup, call_popup, ...keep } = config;
+      if (config.call_popup === true || storageGet(POPUP_CONFIG + "_pinned") !== "1") {
+        storageSet(POPUP_CONFIG, JSON.stringify(keep));
+      }
+      if (config.call_popup === true) storageSet(POPUP_CONFIG + "_pinned", "1");
     }
     this._built = false;
     if (this._hass) this._build();

@@ -255,6 +255,17 @@ console.log("worklet resampler: ok");
   const ha = window.document.createElement("home-assistant");
   ha.hass = card.hass;
   window.document.body.appendChild(ha);
+  // off by default: a device that never opted in does not ring
+  window.eval(`${W}.onInfo({entry_id: 'e1', state: 'ringing', since: new Date().toISOString()})`);
+  assert(!window.document.querySelector(".dahua-vto-popup"), "not opted in: no popup");
+  window.eval(`${W}.onInfo({entry_id: 'e1', state: 'idle'})`);
+  // the wall panel's card opts this device in
+  const wall = window.document.createElement("dahua-vto-talk-card");
+  wall.setConfig({ call_popup: true, open_door_entity: "button.domofon_open_door", title: "Panel" });
+  assert.strictEqual(window.localStorage.getItem("dahua_vto_talk_popup"), "on");
+  // another card shown later does not replace the wall panel's look
+  window.document.createElement("dahua-vto-talk-card").setConfig({ title: "Inna" });
+  assert(JSON.parse(window.localStorage.getItem("dahua_vto_talk_popup_config")).title === "Panel");
   window.eval(`${W}.onInfo({entry_id: 'e1', state: 'ringing', since: new Date().toISOString()})`);
   const pop = window.document.querySelector(".dahua-vto-popup");
   assert(pop, "popup shown");

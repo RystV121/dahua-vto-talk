@@ -1,5 +1,11 @@
 # Zmiany
 
+## 0.2.1
+- Okienko „Ktoś dzwoni” tylko na wybranych urządzeniach (domyślnie nigdzie):
+  włącza je karta z `call_popup: true` (np. na dashboardzie panelu ściennego
+  iPada) albo dzwoneczek na karcie. Telefony i inne tablety nie dzwonią.
+  Okienko wygląda jak karta z `call_popup: true`.
+
 ## 0.2.0
 - **Okienko „Ktoś dzwoni”** na każdym otwartym ekranie HA (bez browser_mod):
   Odbierz (mikrofon + dźwięk z furtki jednym stuknięciem), wyciszenie mikrofonu,

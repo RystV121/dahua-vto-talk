@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 DOMAIN = "dahua_vto_talk"
-VERSION = "0.1.5"
+VERSION = "0.1.6"
 
 CONF_RTSP_PORT = "rtsp_port"
 CONF_HTTP_PORT = "http_port"

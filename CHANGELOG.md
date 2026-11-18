@@ -1,5 +1,10 @@
 # Zmiany
 
+## 0.1.6
+- Po stuknięciu 🔊 karta pokazuje diagnostykę dźwięku podglądu: czy jest
+  ścieżka dźwięku, czy wideo jest wyciszone, głośność, tryb (WebRTC/MSE)
+  i czy gra.
+
 ## 0.1.5
 - Nowy czujnik „Dźwięk podstrumienia (podgląd)”: pokazuje, czy podstrumień
   domofonu naprawdę ma dźwięk i w jakim formacie (np. `PCMA/8000` albo `none`).

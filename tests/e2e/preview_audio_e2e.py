@@ -175,6 +175,7 @@ async def check(cdp: Cdp, name: str) -> dict:
         await cdp.call("Input.dispatchMouseEvent", type=kind, x=rect["x"], y=rect["y"], button="left", clickCount=1)
     await asyncio.sleep(2)
     after = await cdp.js(MEASURE + '(true)')
+    diag = await cdp.js("window.__vtoCard().shadowRoot.getElementById('stxt').textContent")
     shot = await cdp.call("Page.captureScreenshot", format="png")
     Path(f"/tmp/preview_{name}.png").write_bytes(base64.b64decode(shot["data"]))
     audible = (
@@ -183,7 +184,7 @@ async def check(cdp: Cdp, name: str) -> dict:
         and abs(after.get("peakHz", 0) - 600) <= 15
         and after.get("peakDb", -200) - after.get("medianDb", 0) > 30
     )
-    return {"before_click": before, "after_click": after, "audible": audible}
+    return {"before_click": before, "after_click": after, "card_diag": diag, "audible": audible}
 
 
 async def run() -> int:

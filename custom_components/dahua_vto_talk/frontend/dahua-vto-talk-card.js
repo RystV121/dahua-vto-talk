@@ -18,7 +18,7 @@
  * entry_id: ...                           # only with several door stations
  */
 
-const CARD_VERSION = "0.1.5";
+const CARD_VERSION = "0.1.6";
 
 const WORKLET_SOURCE = `
 class VtoPcmSender extends AudioWorkletProcessor {
@@ -118,6 +118,14 @@ const TEXT = {
     silent: "⚠ mikrofon dawał ciszę – sprawdź uprawnienia mikrofonu albo spróbuj w Safari",
     playback: "▶ Odsłuchaj, co poszło do furtki",
     no_recording: "Brak nagrania (zaktualizuj integrację i zrestartuj HA)",
+    diag_no_video: "🔊 nie znalazłem odtwarzacza wideo w podglądzie",
+    diag_audio: "ścieżka dźwięku",
+    diag_muted: "wyciszony",
+    diag_volume: "głośność",
+    diag_paused: "zatrzymany",
+    diag_playing: "gra",
+    yes: "tak",
+    no: "nie",
   },
   en: {
     talk: "Talk",
@@ -139,6 +147,14 @@ const TEXT = {
     silent: "⚠ the microphone gave silence – check mic permission or try Safari",
     playback: "▶ Play back what went to the gate",
     no_recording: "No recording (update the integration and restart HA)",
+    diag_no_video: "🔊 no video player found in the preview",
+    diag_audio: "audio track",
+    diag_muted: "muted",
+    diag_volume: "volume",
+    diag_paused: "paused",
+    diag_playing: "playing",
+    yes: "yes",
+    no: "no",
   },
 };
 
@@ -263,7 +279,12 @@ class DahuaVtoTalkCard extends HTMLElement {
     const open = this.shadowRoot.getElementById("open");
     if (open) open.addEventListener("click", () => this._openDoor());
     const listen = this.shadowRoot.getElementById("listen");
-    if (listen) listen.addEventListener("click", () => this._setListening(!this._listening));
+    if (listen) {
+      listen.addEventListener("click", () => {
+        this._setListening(!this._listening);
+        if (this._listening) setTimeout(() => this._checkPreviewAudio(), 1500);
+      });
+    }
     this.shadowRoot.getElementById("playback").addEventListener("click", () => this._playBack());
     this._render();
     await this._mountCamera();
@@ -380,6 +401,45 @@ class DahuaVtoTalkCard extends HTMLElement {
     }
     // square root so normal speech (peaks around 0.05-0.3) is clearly visible
     if (lvl) lvl.style.width = `${Math.min(100, Math.round(Math.sqrt(this._level) * 130))}%`;
+  }
+
+  _findVideos() {
+    const found = [];
+    const walk = (node) => {
+      if (!node) return;
+      if (node.tagName === "VIDEO") found.push(node);
+      const kids = node.shadowRoot ? [...node.shadowRoot.children, ...node.children] : node.children;
+      for (const k of kids) walk(k);
+    };
+    walk(this.shadowRoot.getElementById("cam"));
+    return found;
+  }
+
+  // One line telling whether the preview really has sound and is unmuted,
+  // so "I hear nothing" can be narrowed down from a screenshot.
+  _checkPreviewAudio() {
+    const t = this._t;
+    const v = this._findVideos()[0];
+    if (!v) { this._status = t.diag_no_video; this._render(); return; }
+    let track = null;
+    if (v.srcObject && v.srcObject.getAudioTracks) {
+      const a = v.srcObject.getAudioTracks();
+      track = a.length > 0 && a.some((x) => x.readyState === "live");
+    } else if (typeof v.webkitAudioDecodedByteCount === "number") {
+      track = v.webkitAudioDecodedByteCount > 0;
+    } else if (v.audioTracks) {
+      track = v.audioTracks.length > 0;
+    }
+    const mode = v.srcObject ? "WebRTC" : v.src ? "MSE/HLS" : "?";
+    const parts = [
+      `${t.diag_audio}: ${track === null ? "?" : track ? t.yes : t.no}`,
+      `${t.diag_muted}: ${v.muted ? t.yes : t.no}`,
+      `${t.diag_volume}: ${Math.round((v.volume || 0) * 100)}%`,
+      mode,
+      v.paused ? t.diag_paused : t.diag_playing,
+    ];
+    this._status = `🔊 ${parts.join(" • ")}`;
+    this._render();
   }
 
   _setListening(on) {

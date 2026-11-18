@@ -18,7 +18,7 @@
  * entry_id: ...                           # only with several door stations
  */
 
-const CARD_VERSION = "0.1.3";
+const CARD_VERSION = "0.1.4";
 
 const WORKLET_SOURCE = `
 class VtoPcmSender extends AudioWorkletProcessor {

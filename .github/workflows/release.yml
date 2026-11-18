@@ -1,0 +1,35 @@
+name: Release
+
+# Every push to main that changes the version in manifest.json gets its own
+# tag (v0.1.4, ...) and GitHub release, which HACS shows as the version.
+on:
+  push:
+    branches: [main]
+    paths:
+      - custom_components/dahua_vto_talk/manifest.json
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Read version
+        id: v
+        run: echo "version=$(jq -r .version custom_components/dahua_vto_talk/manifest.json)" >> "$GITHUB_OUTPUT"
+      - name: Create release if missing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "v$VERSION already released"; exit 0
+          fi
+          NOTES=$(awk -v v="$VERSION" '$0 ~ "^## "v"( |$)"{f=1;next} /^## /{f=0} f' CHANGELOG.md)
+          [ -n "$NOTES" ] || NOTES="Wersja $VERSION"
+          gh release create "v$VERSION" --target "$GITHUB_SHA" --title "v$VERSION" --notes "$NOTES"

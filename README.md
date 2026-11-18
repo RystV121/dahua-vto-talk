@@ -1,3 +1,5 @@
+<img src="custom_components/dahua_vto_talk/brand/icon.png" width="96" align="right" alt="">
+
 # Dahua VTO Talk – rozmowa w dwie strony z domofonem Dahua w Home Assistant
 
 Integracja dodaje do Home Assistanta brakującą połowę domofonu: **Twój głos do
@@ -220,7 +222,7 @@ Plik zawiera aktualne ustawienia audio z domofonu i pełną odpowiedź RTSP (bez
 
 HACS sam pokaże „Dostępna aktualizacja”, gdy pojawi się nowe wydanie. Kliknij
 Aktualizuj, uruchom HA ponownie i przeładuj aplikację/przeglądarkę (karta
-aktualizuje się razem z integracją).
+aktualizuje się razem z integracją). Lista zmian: [CHANGELOG.md](CHANGELOG.md).
 
 ## Testy (dla programistów)
 

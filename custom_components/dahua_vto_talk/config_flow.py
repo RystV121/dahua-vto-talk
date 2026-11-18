@@ -15,6 +15,9 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import (
     CONF_CANCEL_CALL_ENTITY,
+    CONF_RING_ENTITY,
+    CONF_RING_TIMEOUT,
+    DEFAULT_RING_TIMEOUT,
     CONF_CHANNEL,
     CONF_FORCE_CODEC,
     CONF_HTTP_PORT,
@@ -147,10 +150,21 @@ class VtoTalkOptionsFlow(OptionsFlow):
             user_input[CONF_SUBTYPE] = int(user_input[CONF_SUBTYPE])
             if not user_input.get(CONF_CANCEL_CALL_ENTITY):
                 user_input[CONF_CANCEL_CALL_ENTITY] = ""
+            if not user_input.get(CONF_RING_ENTITY):
+                user_input[CONF_RING_ENTITY] = ""
             return self.async_create_entry(data=user_input)
         o = self.config_entry.options
         schema = vol.Schema(
             {
+                vol.Optional(
+                    CONF_RING_ENTITY,
+                    description={"suggested_value": o.get(CONF_RING_ENTITY) or None},
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain=["binary_sensor", "event", "input_boolean", "switch", "sensor"])
+                ),
+                vol.Required(CONF_RING_TIMEOUT, default=o.get(CONF_RING_TIMEOUT, DEFAULT_RING_TIMEOUT)): vol.All(
+                    vol.Coerce(int), vol.Range(min=10, max=600)
+                ),
                 vol.Required(CONF_FORCE_CODEC, default=o.get(CONF_FORCE_CODEC, True)): bool,
                 vol.Required(CONF_RESTORE_CODEC, default=o.get(CONF_RESTORE_CODEC, False)): bool,
                 vol.Required(CONF_FIX_SUB_STREAM, default=o.get(CONF_FIX_SUB_STREAM, True)): bool,

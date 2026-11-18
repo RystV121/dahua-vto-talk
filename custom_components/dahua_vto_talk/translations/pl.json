@@ -49,13 +49,16 @@
           "setup_receive_audio": "Zestawiaj też ścieżkę mikrofonu domofonu",
           "subtype": "Strumień RTSP (0 główny, 1 pomocniczy)",
           "restore_codec_after_talk": "Przywróć oryginalny kodek po rozmowie (dla DMSS)",
-          "fix_sub_stream_audio": "Dźwięk podstrumienia też w G.711A (dla podglądu WebRTC)"
+          "fix_sub_stream_audio": "Dźwięk podstrumienia też w G.711A (dla podglądu WebRTC)",
+          "ring_entity": "Encja dzwonka (pokazuje okienko połączenia)",
+          "ring_timeout": "Jak długo pokazywać dzwonienie (s)"
         },
         "data_description": {
           "packet_bytes": "1024 to tyle, ile go2rtc wysyła do dzwonków Dahua. Mniej = mniejsze opóźnienie.",
           "cancel_call_entity": "Np. przycisk 'Cancel Call' z integracji Dahua.",
           "restore_codec_after_talk": "Gdy DMSS trzeszczy na G.711A: kodek będzie G.711A tylko w czasie mówienia z HA. Wyłącza strażnika kodeka.",
-          "fix_sub_stream_audio": "Odtwarzacze WebRTC nie odtworzą domyślnego dźwięku PCM 16 kHz. Pilnuje, by podstrumień (subtype=1) miał włączony dźwięk w G.711A 8 kHz."
+          "fix_sub_stream_audio": "Odtwarzacze WebRTC nie odtworzą domyślnego dźwięku PCM 16 kHz. Pilnuje, by podstrumień (subtype=1) miał włączony dźwięk w G.711A 8 kHz.",
+          "ring_entity": "Gdy się włączy (binary_sensor/input_boolean/switch), wystrzeli (event) albo zmieni (sensor), każdy otwarty ekran Home Assistanta pokaże okienko „Ktoś dzwoni”. Np. czujnik przycisku/dzwonka z integracji Dahua."
         }
       }
     }
@@ -106,6 +109,14 @@
       },
       "codec_reverts": {
         "name": "Powroty kodeka"
+      },
+      "call_state": {
+        "name": "Połączenie",
+        "state": {
+          "idle": "Brak",
+          "ringing": "Dzwoni",
+          "answered": "Odebrane"
+        }
       }
     },
     "switch": {
@@ -184,6 +195,26 @@
         "config_entry_id": {
           "name": "Config entry",
           "description": "Potrzebne tylko przy kilku domofonach."
+        }
+      }
+    },
+    "ring": {
+      "name": "Pokaż okienko dzwonienia",
+      "description": "Pokazuje „Ktoś dzwoni” na każdym otwartym ekranie Home Assistanta z wczytaną kartą.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Domofon",
+          "description": "Tylko przy kilku domofonach."
+        }
+      }
+    },
+    "dismiss": {
+      "name": "Zamknij okienko dzwonienia",
+      "description": "Kończy dzwonienie/połączenie i zamyka okienko na wszystkich ekranach.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Domofon",
+          "description": "Tylko przy kilku domofonach."
         }
       }
     }

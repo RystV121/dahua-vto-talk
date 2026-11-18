@@ -32,6 +32,8 @@ def async_register_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_talk)
     websocket_api.async_register_command(hass, ws_status)
     websocket_api.async_register_command(hass, ws_client_report)
+    websocket_api.async_register_command(hass, ws_subscribe_call)
+    websocket_api.async_register_command(hass, ws_call_action)
 
 
 def _device(hass: HomeAssistant, entry_id: str | None):
@@ -158,3 +160,47 @@ def ws_client_report(hass: HomeAssistant, connection: websocket_api.ActiveConnec
         return
     device.store_client_report(msg["kind"], msg["data"])
     connection.send_result(msg["id"])
+
+
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/subscribe_call"})
+@callback
+def ws_subscribe_call(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
+    """Call state of every door station: drives the "someone is ringing" popup."""
+    msg_id = msg["id"]
+    removers = []
+
+    @callback
+    def forward(info: dict[str, Any]) -> None:
+        connection.send_message(websocket_api.event_message(msg_id, info))
+
+    connection.send_result(msg_id)
+    for entry in hass.config_entries.async_loaded_entries(DOMAIN):
+        removers.append(entry.runtime_data.add_call_listener(forward))
+
+    @callback
+    def unsubscribe() -> None:
+        for remove in removers:
+            remove()
+
+    connection.subscriptions[msg_id] = unsubscribe
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/call_action",
+        vol.Optional("entry_id"): str,
+        vol.Required("action"): vol.In(["answer", "hangup", "decline", "ring"]),
+        vol.Optional("client"): str,
+    }
+)
+@callback
+def ws_call_action(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
+    device = _device(hass, msg.get("entry_id"))
+    if device is None:
+        connection.send_error(msg["id"], "not_found", "Dahua VTO Talk is not set up")
+        return
+    if msg["action"] == "ring":
+        device.start_ring("card")
+    else:
+        device.call_action(msg["action"], msg.get("client"))
+    connection.send_result(msg["id"], device.call_info())

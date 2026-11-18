@@ -19,9 +19,31 @@
  * mode: toggle | hold                     # default toggle
  * mute_while_talking: false               # mute door audio while you talk
  * entry_id: ...                           # only with several door stations
+ *
+ * Call popup: when the integration's call state goes to "ringing" (doorbell
+ * entity in its options, or the dahua_vto_talk.ring service), every open
+ * Home Assistant screen that has shown this card once pops up the card in
+ * call mode: Answer (mic + door sound on), mic mute, open, hang up. Each
+ * device can turn the popup off with the bell chip on the card.
  */
 
-const CARD_VERSION = "0.1.11";
+const CARD_VERSION = "0.2.0";
+
+// One id per open page: tells "answered here" from "answered on another screen".
+const CLIENT_ID = `c${Math.random().toString(36).slice(2, 10)}`;
+const POPUP_FLAG = "dahua_vto_talk_popup"; // "off" = no call popup on this device
+const POPUP_CONFIG = "dahua_vto_talk_popup_config"; // the card config the popup uses
+
+function storageGet(key) {
+  try { return window.localStorage.getItem(key); } catch (e) { return null; }
+}
+function storageSet(key, value) {
+  try { window.localStorage.setItem(key, value); } catch (e) { /* private mode */ }
+}
+function popupEnabled(value) {
+  if (value !== undefined) storageSet(POPUP_FLAG, value ? "on" : "off");
+  return storageGet(POPUP_FLAG) !== "off";
+}
 
 const WORKLET_SOURCE = `
 class VtoPcmSender extends AudioWorkletProcessor {
@@ -103,6 +125,24 @@ registerProcessor("vto-pcm-sender", VtoPcmSender);
 const TEXT = {
   pl: {
     talk: "Mów",
+    door: "Furtka",
+    answer: "Odbierz",
+    decline: "Odrzuć",
+    hangup: "Rozłącz",
+    mic_on: "Mikrofon",
+    mic_off: "Mikrofon wył.",
+    mic_muted: "Wyciszony",
+    listen_short: "Dźwięk",
+    sound_on: "Słychać",
+    live: "na żywo",
+    muted_short: "wyciszony",
+    ringing: "Ktoś dzwoni do furtki",
+    in_call: "Rozmowa",
+    answered_elsewhere: "Odebrano na innym urządzeniu",
+    close: "Zamknij",
+    popup_on: "okienko",
+    popup_off: "bez okienka",
+    popup_hint: "Okienko „Ktoś dzwoni” na tym urządzeniu (wł./wył.)",
     stop: "Zakończ",
     hold: "Przytrzymaj, żeby mówić",
     open: "Otwórz furtkę",
@@ -135,6 +175,24 @@ const TEXT = {
   },
   en: {
     talk: "Talk",
+    door: "Gate",
+    answer: "Answer",
+    decline: "Decline",
+    hangup: "Hang up",
+    mic_on: "Mic",
+    mic_off: "Mic off",
+    mic_muted: "Muted",
+    listen_short: "Sound",
+    sound_on: "Sound on",
+    live: "live",
+    muted_short: "muted",
+    ringing: "Someone is at the gate",
+    in_call: "Call",
+    answered_elsewhere: "Answered on another screen",
+    close: "Close",
+    popup_on: "popup",
+    popup_off: "no popup",
+    popup_hint: "\"Someone is ringing\" popup on this device (on/off)",
     stop: "Stop",
     hold: "Hold to talk",
     open: "Open gate",
@@ -191,8 +249,17 @@ class DahuaVtoTalkCard extends HTMLElement {
 
   setConfig(config) {
     this._config = { mode: "toggle", mute_while_talking: false, ...config };
+    if (!config.popup) {
+      // the popup on this device looks like the last card shown here
+      const { popup, ...keep } = config;
+      storageSet(POPUP_CONFIG, JSON.stringify(keep));
+    }
     this._built = false;
     if (this._hass) this._build();
+  }
+
+  get hass() {
+    return this._hass;
   }
 
   set hass(hass) {
@@ -229,8 +296,91 @@ class DahuaVtoTalkCard extends HTMLElement {
     return TEXT[lang.startsWith("pl") ? "pl" : "en"];
   }
 
+  connectedCallback() {
+    if (!this._onCall) {
+      this._onCall = (ev) => this._callChanged(ev.detail);
+    }
+    window.addEventListener("dahua-vto-call", this._onCall);
+    const known = CallWatcher.last;
+    if (known) this._callChanged(known);
+  }
+
   disconnectedCallback() {
+    if (this._onCall) window.removeEventListener("dahua-vto-call", this._onCall);
     this._stopTalk();
+    this._tickClock(false);
+  }
+
+  // ------------------------------------------------------------- calls
+
+  _callChanged(info) {
+    if (!info || (this._config && this._config.entry_id && info.entry_id !== this._config.entry_id)) return;
+    this._call = info;
+    if (info.state === "idle" && this._inCall) {
+      this._endCall(); // hung up elsewhere / timed out
+      return;
+    }
+    if (this._built) this._render();
+  }
+
+  _callAction(action) {
+    try {
+      const msg = Object.assign({ type: "dahua_vto_talk/call_action", action, client: CLIENT_ID },
+        this._config.entry_id ? { entry_id: this._config.entry_id } : {});
+      Promise.resolve(this._hass.callWS(msg)).catch(() => {});
+    } catch (e) { /* the call still works locally */ }
+  }
+
+  _answer() {
+    // everything that needs the tap (iOS) happens synchronously here
+    this._inCall = true;
+    this._micMuted = false;
+    this._callStart = Date.now();
+    this._startTalk();
+    this._setListening(true);
+    this._callAction("answer");
+    this._preferWebRtc("tap").then((switched) => switched && this._afterSwitch());
+    this._render();
+  }
+
+  _decline() {
+    this._callAction("decline");
+    this._closePopup();
+  }
+
+  _hangup() {
+    this._callAction("hangup");
+    this._endCall();
+  }
+
+  _endCall() {
+    this._inCall = false;
+    this._micMuted = false;
+    if (this._state !== "idle") this._stopTalk();
+    this._setListening(false);
+    this._render();
+    this._closePopup();
+  }
+
+  _toggleMic() {
+    if (this._state === "idle") {
+      this._micMuted = false;
+      this._startTalk(); // the talk channel had ended: open it again
+    } else {
+      this._micMuted = !this._micMuted;
+    }
+    this._render();
+  }
+
+  _closePopup() {
+    if (this._config && this._config.popup) {
+      this.dispatchEvent(new window.CustomEvent("dahua-vto-popup-close", { bubbles: true, composed: true }));
+    }
+  }
+
+  _tickClock(on) {
+    if (on && !this._clock) this._clock = setInterval(() => this._render(), 1000);
+    if (!on && this._clock) { clearInterval(this._clock); this._clock = null; }
   }
 
   // ---------------------------------------------------------------- UI
@@ -239,51 +389,97 @@ class DahuaVtoTalkCard extends HTMLElement {
     if (!this._config || !this._hass) return;
     this._built = true;
     const t = this._t;
+    const c = this._config;
+    const popup = !!c.popup;
+    if (popup) this.setAttribute("popup", "");
+    const icon = (name) => `<ha-icon icon="${name}"></ha-icon>`;
+    const ctl = (id, cls, ic, label, extra = "") =>
+      `<button class="ctl ${cls}" id="${id}" ${extra}><span class="ic">${icon(ic)}</span><span class="lb" id="${id}lb">${label}</span></button>`;
     this.shadowRoot.innerHTML = `
       <style>
+        :host { display: block; }
         ha-card { overflow: hidden; }
+        .stage { position: relative; background: #000; }
         .cam { position: relative; background: #000; min-height: 40px; }
         .cam .msg { color: #fff; padding: 16px; font-size: 14px; }
         .cam ha-card { border-radius: 0; border: 0; box-shadow: none; }
-        .bar { display: flex; gap: 8px; padding: 12px; align-items: center; flex-wrap: wrap; }
-        button.main {
-          flex: 1 1 140px; min-height: 56px; border: 0; border-radius: 28px; font-size: 18px; font-weight: 600;
-          color: white; background: var(--success-color, #2e7d32); cursor: pointer; user-select: none;
-          -webkit-user-select: none; touch-action: none;
-        }
-        button.main.on { background: var(--error-color, #c62828); }
-        button.main.busy { opacity: .7; }
-        button.listen {
-          flex: 0 0 56px; min-height: 56px; border: 0; border-radius: 28px; font-size: 22px;
-          background: var(--secondary-background-color, #444); color: var(--primary-text-color); cursor: pointer;
-        }
-        button.listen.on { background: var(--info-color, #039be5); color: white; }
-        button.open {
-          flex: 0 1 160px; min-height: 56px; border: 0; border-radius: 28px; font-size: 16px;
-          background: var(--primary-color); color: var(--text-primary-color, white); cursor: pointer;
-        }
-        .status { padding: 0 16px 12px; font-size: 13px; color: var(--secondary-text-color); display:flex; gap:8px; align-items:center; }
+        .top { position: absolute; top: 10px; left: 10px; right: 10px; display: flex; gap: 8px;
+          align-items: center; pointer-events: none; z-index: 2; }
+        .top .spacer { flex: 1; }
+        .chip { pointer-events: auto; display: inline-flex; gap: 6px; align-items: center; border: 0;
+          background: rgba(0, 0, 0, .55); color: #fff; border-radius: 999px; padding: 5px 11px; font: inherit;
+          font-size: 13px; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+        .chip ha-icon { --mdc-icon-size: 16px; }
+        button.chip { cursor: pointer; }
+        .chip .dot { width: 8px; height: 8px; border-radius: 50%; background: #9e9e9e; }
+        .chip.on .dot { background: #e53935; animation: pulse 1.4s infinite; }
+        .ringbar { position: absolute; left: 0; right: 0; bottom: 0; padding: 22px 14px 10px; z-index: 2;
+          background: linear-gradient(transparent, rgba(0, 0, 0, .8)); color: #fff; font-weight: 600;
+          display: flex; gap: 8px; align-items: center; font-size: 15px; pointer-events: none; }
+        .ringbar[hidden] { display: none; }
+        .ringbar .bell { display: inline-flex; animation: shake 1s infinite; }
+        .ringbar.call .bell { animation: none; }
+        .controls { display: flex; justify-content: center; gap: 12px; padding: 16px 12px 6px; flex-wrap: wrap; }
+        .ctl { display: flex; flex-direction: column; align-items: center; gap: 6px; background: none; border: 0;
+          color: var(--primary-text-color); cursor: pointer; font: inherit; font-size: 12px; min-width: 66px;
+          -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none;
+          touch-action: manipulation; padding: 0; }
+        .ctl[hidden] { display: none; }
+        .ctl .ic { width: 60px; height: 60px; border-radius: 50%; display: flex; align-items: center;
+          justify-content: center; background: var(--secondary-background-color, #3a3a3a);
+          transition: transform .1s, background .2s; --mdc-icon-size: 28px; }
+        .ctl:active .ic { transform: scale(.93); }
+        .ctl.on .ic { background: var(--info-color, #039be5); color: #fff; }
+        .ctl.green .ic { background: #2e7d32; color: #fff; }
+        .ctl.red .ic, .ctl.talking .ic, .ctl.muted .ic { background: #c62828; color: #fff; }
+        .ctl.busy .ic { opacity: .65; }
+        .ctl.big .ic { width: 72px; height: 72px; --mdc-icon-size: 32px; }
+        .ctl.answer .ic { animation: ring 1.3s infinite; }
+        .ctl.open .ic { background: var(--primary-color); color: var(--text-primary-color, #fff); }
+        :host([popup]) .ctl .ic { width: 72px; height: 72px; --mdc-icon-size: 32px; }
+        :host([popup]) .ctl { font-size: 14px; min-width: 84px; }
+        .status { padding: 4px 16px 12px; font-size: 13px; color: var(--secondary-text-color); display: flex;
+          gap: 8px; align-items: center; justify-content: center; text-align: center; }
         .status.err { color: var(--error-color, #c62828); }
-        .meter { width: 60px; height: 6px; background: var(--divider-color); border-radius: 3px; overflow: hidden; }
-        .summary { padding: 0 16px 12px; font-size: 13px; color: var(--secondary-text-color); display:flex; gap:8px; align-items:center; flex-wrap: wrap; }
+        .meter { flex: 0 0 60px; height: 6px; background: var(--divider-color); border-radius: 3px; overflow: hidden; }
+        .meter > div { height: 100%; width: 0; background: var(--success-color, #2e7d32); transition: width .1s; }
+        .summary { padding: 0 16px 12px; font-size: 13px; color: var(--secondary-text-color); display: flex; gap: 8px;
+          align-items: center; justify-content: center; flex-wrap: wrap; }
         .summary[hidden] { display: none; }
         .summary.warn { color: var(--warning-color, #f57c00); }
         .summary button { border: 0; border-radius: 16px; padding: 6px 12px; font-size: 13px; cursor: pointer;
           background: var(--secondary-background-color, #444); color: var(--primary-text-color); }
-        .meter > div { height: 100%; width: 0; background: var(--success-color, #2e7d32); transition: width .1s; }
+        @keyframes pulse { 0%, 100% { opacity: 1 } 50% { opacity: .3 } }
+        @keyframes shake { 0%, 100% { transform: rotate(0) } 25% { transform: rotate(16deg) } 75% { transform: rotate(-16deg) } }
+        @keyframes ring { 0% { box-shadow: 0 0 0 0 rgba(46, 125, 50, .7) } 100% { box-shadow: 0 0 0 18px rgba(46, 125, 50, 0) } }
       </style>
-      <ha-card ${this._config.title ? `header="${this._config.title}"` : ""}>
-        ${this._hasCam ? '<div class="cam" id="cam"></div>' : ""}
-        <div class="bar">
-          <button class="main" id="talk">🎤 ${this._config.mode === "hold" ? t.hold : t.talk}</button>
-          ${this._hasCam ? `<button class="listen" id="listen" title="${t.listen}">🔇</button>` : ""}
-          ${this._config.open_door_entity ? `<button class="open" id="open">🔓 ${t.open}</button>` : ""}
+      <ha-card>
+        <div class="stage">
+          ${this._hasCam ? '<div class="cam" id="cam"></div>' : '<div class="cam" id="cam" style="min-height:120px"></div>'}
+          <div class="top">
+            <span class="chip">${icon("mdi:doorbell-video")}<span>${c.title || t.door}</span></span>
+            <span class="chip" id="live"><span class="dot"></span><span id="livelb">${t.muted_short}</span></span>
+            <span class="spacer"></span>
+            ${popup ? `<button class="chip" id="close" title="${t.close}">${icon("mdi:close")}</button>`
+                    : `<button class="chip" id="popupchip" title="${t.popup_hint}">${icon("mdi:bell-ring-outline")}<span id="popuplb"></span></button>`}
+          </div>
+          <div class="ringbar" id="ringbar" hidden><span class="bell">${icon("mdi:bell-ring")}</span><span id="ringtxt"></span></div>
+        </div>
+        <div class="controls" id="controls">
+          ${ctl("answer", "green big answer", "mdi:phone", t.answer)}
+          ${ctl("decline", "red", "mdi:phone-cancel", t.decline)}
+          ${this._hasCam ? ctl("listen", "", "mdi:volume-off", t.listen_short, `title="${t.listen}"`) : ""}
+          ${ctl("talk", "", "mdi:microphone", c.mode === "hold" ? t.hold : t.talk)}
+          ${ctl("mute", "", "mdi:microphone", t.mic_on)}
+          ${c.open_door_entity ? ctl("open", "open", "mdi:lock-open-variant", t.open) : ""}
+          ${ctl("hangup", "red big", "mdi:phone-hangup", t.hangup)}
         </div>
         <div class="status" id="status"><div class="meter"><div id="lvl"></div></div><span id="stxt">${t.idle}</span></div>
         <div class="summary" id="summary" hidden><span id="sumtxt"></span><button id="playback">${t.playback}</button></div>
       </ha-card>`;
-    const talk = this.shadowRoot.getElementById("talk");
-    if (this._config.mode === "hold") {
+    const $ = (id) => this.shadowRoot.getElementById(id);
+    const talk = $("talk");
+    if (c.mode === "hold") {
       talk.addEventListener("pointerdown", (e) => { e.preventDefault(); this._startTalk(); });
       for (const ev of ["pointerup", "pointercancel", "pointerleave"]) {
         talk.addEventListener(ev, () => this._stopTalk());
@@ -292,9 +488,9 @@ class DahuaVtoTalkCard extends HTMLElement {
     } else {
       talk.addEventListener("click", () => (this._state === "idle" ? this._startTalk() : this._stopTalk()));
     }
-    const open = this.shadowRoot.getElementById("open");
+    const open = $("open");
     if (open) open.addEventListener("click", () => this._openDoor());
-    const listen = this.shadowRoot.getElementById("listen");
+    const listen = $("listen");
     if (listen) {
       listen.addEventListener("click", () => {
         this._setListening(!this._listening);
@@ -306,7 +502,20 @@ class DahuaVtoTalkCard extends HTMLElement {
         }
       });
     }
-    this.shadowRoot.getElementById("playback").addEventListener("click", () => this._playBack());
+    $("answer").addEventListener("click", () => this._answer());
+    $("decline").addEventListener("click", () => this._decline());
+    $("mute").addEventListener("click", () => this._toggleMic());
+    $("hangup").addEventListener("click", () => this._hangup());
+    const close = $("close");
+    if (close) close.addEventListener("click", () => (this._inCall ? this._hangup() : this._closePopup()));
+    const chip = $("popupchip");
+    if (chip) {
+      chip.addEventListener("click", () => {
+        popupEnabled(!popupEnabled());
+        this._render();
+      });
+    }
+    $("playback").addEventListener("click", () => this._playBack());
     this._render();
     await this._mountCamera();
   }
@@ -391,16 +600,61 @@ class DahuaVtoTalkCard extends HTMLElement {
     const status = root.getElementById("status");
     const lvl = root.getElementById("lvl");
     if (!talk || !stxt) return;
-    talk.classList.toggle("on", this._state !== "idle");
-    const listen = root.getElementById("listen");
-    if (listen) {
-      listen.textContent = this._listening ? "🔊" : "🔇";
-      listen.classList.toggle("on", !!this._listening);
-    }
+    const $ = (id) => root.getElementById(id);
+    const setIcon = (id, name) => {
+      const el = root.querySelector(`#${id} ha-icon`);
+      if (el && el.getAttribute("icon") !== name) el.setAttribute("icon", name);
+    };
+    const show = (id, on) => { const el = $(id); if (el) el.hidden = !on; };
+    const call = this._call || {};
+    const ringing = call.state === "ringing" && !this._inCall;
+    const inCall = !!this._inCall;
+    const elsewhere = call.state === "answered" && call.by && call.by !== CLIENT_ID && !inCall;
+    show("answer", ringing);
+    show("decline", ringing);
+    show("talk", !ringing && !inCall);
+    show("mute", inCall);
+    show("hangup", inCall);
+    talk.classList.toggle("talking", this._state !== "idle");
     talk.classList.toggle("busy", this._state === "connecting");
     if (this._config.mode !== "hold") {
-      talk.textContent = this._state === "idle" ? `🎤 ${t.talk}` : `⏹ ${t.stop}`;
+      $("talklb").textContent = this._state === "idle" ? t.talk : t.stop;
+      setIcon("talk", this._state === "idle" ? "mdi:microphone" : "mdi:stop");
     }
+    const listen = $("listen");
+    if (listen) {
+      listen.classList.toggle("on", !!this._listening);
+      setIcon("listen", this._listening ? "mdi:volume-high" : "mdi:volume-off");
+      $("listenlb").textContent = this._listening ? t.sound_on : t.listen_short;
+    }
+    const mute = $("mute");
+    if (mute) {
+      const off = this._micMuted || this._state === "idle";
+      mute.classList.toggle("muted", !!this._micMuted);
+      mute.classList.toggle("on", !off);
+      setIcon("mute", off ? "mdi:microphone-off" : "mdi:microphone");
+      $("mutelb").textContent = this._micMuted ? t.mic_muted : this._state === "idle" ? t.mic_off : t.mic_on;
+    }
+    const live = $("live");
+    if (live) {
+      live.classList.toggle("on", !!this._listening);
+      $("livelb").textContent = this._listening ? t.live : t.muted_short;
+    }
+    const popuplb = $("popuplb");
+    if (popuplb) popuplb.textContent = popupEnabled() ? t.popup_on : t.popup_off;
+    const ringbar = $("ringbar");
+    if (ringbar) {
+      const since = inCall ? this._callStart : call.since ? Date.parse(call.since) : null;
+      const secs = since ? Math.max(0, Math.round((Date.now() - since) / 1000)) : 0;
+      const clock = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
+      ringbar.hidden = !(ringing || inCall || elsewhere);
+      ringbar.classList.toggle("call", inCall || elsewhere);
+      const bell = ringbar.querySelector("ha-icon");
+      const want = inCall ? "mdi:phone-in-talk" : elsewhere ? "mdi:phone-check" : "mdi:bell-ring";
+      if (bell && bell.getAttribute("icon") !== want) bell.setAttribute("icon", want);
+      $("ringtxt").textContent = inCall ? `${t.in_call} · ${clock}` : elsewhere ? t.answered_elsewhere : `${t.ringing} · ${clock}`;
+    }
+    this._tickClock((ringing || inCall) && this.isConnected);
     let text = t.idle;
     if (this._error) text = this._error;
     else if (this._state === "connecting") text = t.connecting;
@@ -778,6 +1032,11 @@ class DahuaVtoTalkCard extends HTMLElement {
     });
     const source = ctx.createMediaStreamSource(this._stream);
     const send = (buf, peak) => {
+      if (this._micMuted) {
+        // muted: keep the stream going (no gaps at the door), but silent
+        buf = new ArrayBuffer(buf.byteLength);
+        peak = 0;
+      }
       this._level = peak;
       const sock = this._hass.connection.socket;
       if (!sock || sock.readyState !== 1 || this._handlerId == null) return;
@@ -792,7 +1051,7 @@ class DahuaVtoTalkCard extends HTMLElement {
       if (peak > this._maxPeak) this._maxPeak = peak;
       // 2 s of exact digital zeros: the capture chain is broken (a real mic
       // always has some noise). Rebuild it once with a fresh AudioContext.
-      if (!this._rebuilt && this._sentFrames === 100 && this._maxPeak === 0) this._rebuildCapture(rate);
+      if (!this._rebuilt && !this._micMuted && this._sentFrames === 100 && this._maxPeak === 0) this._rebuildCapture(rate);
       if (!this._meterTick || performance.now() - this._meterTick > 100) {
         this._meterTick = performance.now();
         this._render();
@@ -994,6 +1253,116 @@ if (typeof customElements !== "undefined") {
   };
   setTimeout(recheck, 0);
   customElements.whenDefined("home-assistant").then(defineCard, () => {});
+}
+
+// ------------------------------------------------------------ call popup
+// Loaded on every Home Assistant page (the integration adds this file as an
+// extra module), so a ringing door shows up over whatever dashboard is open.
+const CallWatcher = {
+  last: null,
+  started: false,
+  overlay: null,
+  card: null,
+  timer: null,
+
+  start() {
+    if (this.started || typeof window === "undefined" || !window.hassConnection) return;
+    this.started = true;
+    Promise.resolve(window.hassConnection)
+      .then(({ conn }) => conn.subscribeMessage((info) => this.onInfo(info), { type: "dahua_vto_talk/subscribe_call" }))
+      .catch(() => { this.started = false; });
+  },
+
+  onInfo(info) {
+    this.last = info;
+    window.dispatchEvent(new window.CustomEvent("dahua-vto-call", { detail: info }));
+    if (info.state === "ringing") this.open(info);
+    else if (info.state === "idle" || (info.state === "answered" && info.by !== CLIENT_ID)) this.close(false);
+  },
+
+  hass() {
+    const ha = document.querySelector("home-assistant");
+    return ha && ha.hass;
+  },
+
+  open(info) {
+    if (this.overlay || !popupEnabled()) return;
+    const hass = this.hass();
+    const Card = customElements.get(CARD_TAG);
+    if (!hass || !Card) return;
+    let cfg = {};
+    try { cfg = JSON.parse(storageGet(POPUP_CONFIG) || "{}") || {}; } catch (e) { cfg = {}; }
+    const overlay = document.createElement("div");
+    overlay.className = "dahua-vto-popup";
+    overlay.setAttribute("style", [
+      "position:fixed", "inset:0", "z-index:2147483000", "display:flex", "align-items:center",
+      "justify-content:center", "background:rgba(0,0,0,.55)", "-webkit-backdrop-filter:blur(8px)",
+      "backdrop-filter:blur(8px)", "padding:16px", "box-sizing:border-box",
+    ].join(";"));
+    const box = document.createElement("div");
+    box.setAttribute("style", "width:min(760px,100%);max-height:100%;overflow:auto;border-radius:20px;box-shadow:0 12px 48px rgba(0,0,0,.5)");
+    const card = document.createElement(CARD_TAG);
+    card.setConfig(Object.assign({}, cfg, { popup: true, entry_id: cfg.entry_id || info.entry_id }));
+    card.hass = hass;
+    box.appendChild(card);
+    overlay.appendChild(box);
+    overlay.addEventListener("click", (ev) => {
+      // a tap next to the card hides the popup (the call keeps ringing elsewhere)
+      if (ev.target === overlay && !card._inCall) this.close(true);
+    });
+    card.addEventListener("dahua-vto-popup-close", () => this.close(true));
+    document.body.appendChild(overlay);
+    this.overlay = overlay;
+    this.card = card;
+    this.timer = setInterval(() => {
+      const h = this.hass();
+      if (h && card.hass !== h) card.hass = h;
+    }, 1000);
+    this.chime();
+  },
+
+  close(force) {
+    if (!this.overlay) return;
+    if (!force && this.card && this.card._inCall) return; // my own call stays open
+    clearInterval(this.timer);
+    this.timer = null;
+    this.overlay.remove();
+    this.overlay = null;
+    this.card = null;
+  },
+
+  chime() {
+    // a short ding-dong; browsers may refuse sound without a tap, then it is silent
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      const ctx = new Ctx();
+      ctx.resume().catch(() => {});
+      setTimeout(() => {
+        try {
+        if (ctx.state !== "running") { ctx.close().catch(() => {}); return; }
+        const t0 = ctx.currentTime;
+        [[0, 880], [0.38, 660], [1.3, 880], [1.68, 660]].forEach(([dt, f]) => {
+          const o = ctx.createOscillator();
+          const g = ctx.createGain();
+          o.frequency.value = f;
+          g.gain.setValueAtTime(0.0001, t0 + dt);
+          g.gain.exponentialRampToValueAtTime(0.25, t0 + dt + 0.02);
+          g.gain.exponentialRampToValueAtTime(0.0001, t0 + dt + 0.34);
+          o.connect(g);
+          g.connect(ctx.destination);
+          o.start(t0 + dt);
+          o.stop(t0 + dt + 0.36);
+        });
+        setTimeout(() => ctx.close().catch(() => {}), 2600);
+        } catch (e) { /* no sound */ }
+      }, 80);
+    } catch (e) { /* no sound, the popup is still there */ }
+  },
+};
+
+if (typeof window !== "undefined") {
+  window.__dahuaVtoCallWatcher = CallWatcher; // for tests and debugging
+  CallWatcher.start();
 }
 
 // exported for tests (node)

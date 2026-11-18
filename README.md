@@ -95,8 +95,41 @@ mute_while_talking: false
 Nazwy encji sprawdź u siebie (Ustawienia → Urządzenia → Domofon). Karta ładuje
 się sama, nie trzeba dodawać jej w „Zasobach”.
 
-Na karcie: obraz z furtki z dźwiękiem, duży przycisk **🎤 Mów**, **🔓 Otwórz furtkę**,
-pasek poziomu mikrofonu i status (`Mówisz • PCMA/8000 • pakiety: …`).
+Na karcie: obraz z furtki, okrągłe przyciski **Dźwięk** (domyślnie wyłączony, żeby
+domofon nie szumiał w tle), **Mów**, **Otwórz furtkę**, pasek poziomu mikrofonu i
+status (`Mówisz • PCMA/8000 • pakiety: …`). Gdy ktoś dzwoni, karta pokazuje
+„Ktoś dzwoni do furtki” i przyciski **Odbierz / Odrzuć** (patrz niżej).
+
+### Osobny widok „Domofon” + przycisk na ekranie głównym
+
+Dashboard → Edytuj → ⋮ → Edytor kodu, dopisz widok (`panel: true` = karta na
+całą szerokość, wygodne na iPadzie):
+
+```yaml
+  - title: Domofon
+    path: domofon
+    icon: mdi:doorbell-video
+    panel: true
+    cards:
+      - type: custom:dahua-vto-talk-card
+        title: Furtka
+        camera_card:
+          type: custom:webrtc-camera
+          url: domofon_sub
+          muted: true
+        open_door_entity: button.domofon_open_door
+```
+
+i na ekranie głównym kafelek, który do niego prowadzi:
+
+```yaml
+type: button
+name: Domofon
+icon: mdi:doorbell-video
+tap_action:
+  action: navigate
+  navigation_path: domofon      # ścieżka widoku z powyższego
+```
 
 ### Lżejszy, płynny podgląd (WebRTC + podstrumień)
 
@@ -185,26 +218,46 @@ Mikrofon w przeglądarce wymaga **HTTPS** (np. `https://twoj-ha.example.com` alb
 - **Brave na komputerze** blokował dźwięk w nocy. Do HA używaj Chrome albo
   wyłącz tarcze Brave dla adresu HA.
 
-## Okienko na iPadzie, gdy ktoś dzwoni (opcjonalnie)
+## Okienko „Ktoś dzwoni” (iPad na ścianie i każdy inny ekran)
 
-Wymaga **browser_mod** (HACS). Przykład automatyzacji:
+Bez dodatkowych dodatków (browser_mod niepotrzebny). Gdy ktoś zadzwoni, na
+**każdym otwartym ekranie Home Assistanta** wyskakuje okienko z podglądem:
 
-```yaml
-alias: Domofon – okno na iPadzie
-triggers:
-  - trigger: state
-    entity_id: event.domofon_doorbell     # sprawdź swoją encję zdarzenia "Doorbell"
-actions:
-  - action: browser_mod.popup
-    data:
-      browser_id: ipad_sciana             # ID przeglądarki iPada z browser_mod
-      title: Ktoś dzwoni
-      timeout: 60000                      # samo się zamknie po minucie
-      content:
-        type: custom:dahua-vto-talk-card
-        camera_entity: camera.domofon_main
-        open_door_entity: button.domofon_open_door
-```
+* **Odbierz** – włącza mikrofon i dźwięk z furtki (jedno stuknięcie),
+* **Mikrofon** – wycisza / włącza Twój mikrofon w trakcie rozmowy,
+* **Otwórz furtkę**,
+* **Rozłącz** – kończy mówienie, wycisza podgląd i zamyka okienko,
+* **Odrzuć** – zamyka okienko bez odbierania.
+
+Gdy ktoś odbierze na jednym ekranie, na pozostałych okienko znika („Odebrano na
+innym urządzeniu”). Samo zamyka się po czasie z opcji (domyślnie 60 s).
+
+Ustawienie (raz):
+
+1. **Ustawienia → Urządzenia i usługi → Dahua VTO Talk → Konfiguruj → „Encja
+   dzwonka”**: wybierz encję, która mówi, że ktoś nacisnął przycisk na
+   domofonie (np. czujnik / zdarzenie przycisku z integracji Dahua). Zamiast
+   tego możesz też w dowolnej automatyzacji wywołać `dahua_vto_talk.ring`:
+
+   ```yaml
+   alias: Domofon – okienko
+   triggers:
+     - trigger: state
+       entity_id: binary_sensor.domofon_button_pressed   # Twoja encja dzwonka
+       to: "on"
+   actions:
+     - action: dahua_vto_talk.ring
+   ```
+
+2. Na iPadzie **otwórz raz widok z kartą** – okienko wygląda potem tak samo jak
+   ta karta (ta sama kamera, ten sam przycisk furtki).
+3. Dzwoneczek w rogu karty (**okienko / bez okienka**) włącza lub wyłącza
+   okienko na danym urządzeniu (np. wyłącz na telefonie, zostaw na iPadzie).
+
+Test bez wychodzenia z domu: **Narzędzia deweloperskie → Akcje →
+`dahua_vto_talk.ring`**. Czujnik **„Połączenie”** (brak / dzwoni / odebrane)
+nadaje się do własnych automatyzacji (np. podświetl ekran, wycisz muzykę).
+Okienko pojawia się, gdy aplikacja HA jest otwarta na ekranie.
 
 ## Usługi (np. do automatyzacji)
 
@@ -212,6 +265,8 @@ actions:
 - `dahua_vto_talk.play_media`: odtwórz plik / URL / **TTS** w głośniku domofonu, np. „Paczkę proszę zostawić przy furtce”
 - `dahua_vto_talk.fix_codec`: ustaw G.711A i zwróć, co domofon oferuje
 - `dahua_vto_talk.stop`: zamknij kanał mówienia
+- `dahua_vto_talk.ring`: pokaż okienko „Ktoś dzwoni” na wszystkich ekranach
+- `dahua_vto_talk.dismiss`: zamknij okienko / zakończ dzwonienie
 
 ## Ustawienia (Konfiguruj)
 
@@ -235,7 +290,7 @@ actions:
   Dahua i przy L16 też jest cisza, więc atrapa jest wierna. Pakiety go2rtc
   (1024 B, znacznik czasu 0, marker) są identyczne z pakietami tej integracji,
   ta sama sekwencja żądań RTSP.
-- **41 testów automatycznych** w prawdziwym Home Assistant (config flow, opcje,
+- **testy automatyczne** w prawdziwym Home Assistant (config flow, opcje,
   strażnik, ton testowy, websocket, zajęty kanał, złe hasło, rozłączenie,
   przywracanie kodeka, diagnostyka).
 - **Pełny test w prawdziwym Chrome**: uruchomiony Home Assistant z frontendem,
@@ -266,7 +321,7 @@ Chrome, analiza dźwięku z `<video>` po kliknięciu 🔊):
 
 ```
 pip install pytest-homeassistant-custom-component pytest-timeout
-pytest tests                                   # 41 testów, w tym atrapa VTO
+pytest tests                                   # testy integracji, w tym atrapa VTO
 GO2RTC_BIN=/ścieżka/go2rtc pytest tests        # + porównanie z prawdziwym go2rtc
 npm i jsdom && node tests/js/card.test.js      # karta: resampler, przyciski, kamera
 ```

@@ -394,3 +394,69 @@ async def test_diagnostics(hass: HomeAssistant, vto: FakeVto) -> None:
     assert diag["rtsp_describe"]["backchannel"] in ("L16/16000", "PCMA/8000")
     assert diag["rtsp_describe"]["medias"][3]["control"] == "trackID=5"
     assert "table.Encode[0].MainFormat[0].Audio.Compression" in diag["encode_audio"]
+
+
+# ----------------------------------------------------------- call popup
+
+
+async def test_ring_entity_drives_call_state_and_popup_events(hass: HomeAssistant, vto: FakeVto, hass_ws_client) -> None:
+    hass.states.async_set("binary_sensor.vto_button", "off")
+    await setup_entry(hass, vto, {"ring_entity": "binary_sensor.vto_button", "ring_timeout": 30})
+    client = await hass_ws_client(hass)
+    await client.send_json({"id": 1, "type": f"{DOMAIN}/subscribe_call"})
+    assert (await client.receive_json())["success"]
+    first = await client.receive_json()
+    assert first["event"]["state"] == "idle"
+    call = entity(hass, "sensor", "call_state")
+    assert hass.states.get(call).state == "idle"
+
+    # doorbell pressed -> every open screen hears "ringing"
+    hass.states.async_set("binary_sensor.vto_button", "on")
+    await hass.async_block_till_done()
+    ev = await client.receive_json()
+    assert ev["event"]["state"] == "ringing" and ev["event"]["source"] == "entity:binary_sensor.vto_button"
+    assert hass.states.get(call).state == "ringing"
+
+    # answered on the iPad -> the others are told who took it
+    await client.send_json({"id": 2, "type": f"{DOMAIN}/call_action", "action": "answer", "client": "ipad-1"})
+    ev = await client.receive_json()
+    assert ev["event"]["state"] == "answered" and ev["event"]["by"] == "ipad-1"
+    assert (await client.receive_json())["success"]
+    # a second press while talking does not pop up again
+    hass.states.async_set("binary_sensor.vto_button", "off")
+    hass.states.async_set("binary_sensor.vto_button", "on")
+    await hass.async_block_till_done()
+    assert hass.states.get(call).state == "answered"
+
+    await client.send_json({"id": 3, "type": f"{DOMAIN}/call_action", "action": "hangup", "client": "ipad-1"})
+    ev = await client.receive_json()
+    assert ev["event"]["state"] == "idle"
+    assert (await client.receive_json())["success"]
+    assert hass.states.get(call).state == "idle"
+
+
+async def test_ring_times_out_and_services(hass: HomeAssistant, vto: FakeVto) -> None:
+    await setup_entry(hass, vto, {"ring_timeout": 20})
+    call = entity(hass, "sensor", "call_state")
+    await hass.services.async_call(DOMAIN, "ring", {}, blocking=True)
+    assert hass.states.get(call).state == "ringing"
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=25))
+    await hass.async_block_till_done()
+    assert hass.states.get(call).state == "idle"
+
+    await hass.services.async_call(DOMAIN, "ring", {}, blocking=True)
+    await hass.services.async_call(DOMAIN, "dismiss", {}, blocking=True)
+    assert hass.states.get(call).state == "idle"
+
+
+async def test_event_entity_rings_on_new_event_only(hass: HomeAssistant, vto: FakeVto) -> None:
+    hass.states.async_set("event.vto_doorbell", "2026-11-18T10:00:00+00:00")
+    await setup_entry(hass, vto, {"ring_entity": "event.vto_doorbell"})
+    call = entity(hass, "sensor", "call_state")
+    hass.states.async_set("event.vto_doorbell", "unavailable")
+    hass.states.async_set("event.vto_doorbell", "2026-11-18T10:00:00+00:00")  # back after a restart: no ring
+    await hass.async_block_till_done()
+    assert hass.states.get(call).state == "idle"
+    hass.states.async_set("event.vto_doorbell", "2026-11-18T10:05:00+00:00")
+    await hass.async_block_till_done()
+    assert hass.states.get(call).state == "ringing"

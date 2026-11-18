@@ -1,5 +1,18 @@
 # Zmiany
 
+## 0.2.0
+- **Okienko „Ktoś dzwoni”** na każdym otwartym ekranie HA (bez browser_mod):
+  Odbierz (mikrofon + dźwięk z furtki jednym stuknięciem), wyciszenie mikrofonu,
+  Otwórz furtkę, Rozłącz (wycisza podgląd i zamyka okienko), Odrzuć. Gdy ktoś
+  odbierze na jednym ekranie, na innych okienko znika. Wyzwalanie: „Encja
+  dzwonka” w opcjach albo usługa `dahua_vto_talk.ring`; `dahua_vto_talk.dismiss`
+  zamyka. Okienko można wyłączyć na danym urządzeniu (dzwoneczek na karcie).
+- Czujnik „Połączenie” (brak / dzwoni / odebrane).
+- Nowy wygląd karty: okrągłe przyciski z ikonami, status „na żywo / wyciszony”
+  na podglądzie, licznik czasu rozmowy; dźwięk z furtki domyślnie wyłączony.
+- Wyciszony mikrofon w rozmowie wysyła ciszę (bez dziur w dźwięku na furtce).
+- Licencja MIT.
+
 ## 0.1.11
 - Suwak „Wzmocnienie dźwięku podglądu” (0–24 dB, domyślnie 0): głośniejszy
   dźwięk z furtki w karcie (Web Audio + ogranicznik). Przy 0 dB odtwarzanie

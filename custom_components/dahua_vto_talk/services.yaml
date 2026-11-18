@@ -62,3 +62,25 @@ stop:
       selector:
         config_entry:
           integration: dahua_vto_talk
+
+ring:
+  name: Show the call popup
+  description: Shows "someone is ringing" on every open Home Assistant screen that has the card loaded (as if the doorbell was pressed).
+  fields:
+    config_entry_id:
+      name: Door station
+      required: false
+      selector:
+        config_entry:
+          integration: dahua_vto_talk
+
+dismiss:
+  name: Close the call popup
+  description: Ends the ringing / call state and closes the popup everywhere.
+  fields:
+    config_entry_id:
+      name: Door station
+      required: false
+      selector:
+        config_entry:
+          integration: dahua_vto_talk

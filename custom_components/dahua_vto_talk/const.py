@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 DOMAIN = "dahua_vto_talk"
-VERSION = "0.1.11"
+VERSION = "0.2.0"
 
 CONF_RTSP_PORT = "rtsp_port"
 CONF_HTTP_PORT = "http_port"
@@ -21,6 +21,14 @@ CONF_SETUP_RECEIVE_AUDIO = "setup_receive_audio"
 CONF_RESTORE_CODEC = "restore_codec_after_talk"
 CONF_FIX_SUB_STREAM = "fix_sub_stream_audio"
 DEFAULT_TALK_GAIN_DB = 0.0
+CONF_RING_ENTITY = "ring_entity"
+CONF_RING_TIMEOUT = "ring_timeout"
+DEFAULT_RING_TIMEOUT = 60
+
+CALL_IDLE = "idle"
+CALL_RINGING = "ringing"
+CALL_ANSWERED = "answered"
+CALL_STATES = [CALL_IDLE, CALL_RINGING, CALL_ANSWERED]
 
 DEFAULT_RTSP_PORT = 554
 DEFAULT_HTTP_PORT = 80

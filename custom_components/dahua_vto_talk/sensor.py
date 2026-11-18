@@ -9,7 +9,7 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import TALK_STATES
+from .const import CALL_STATES, TALK_STATES
 from .device import VtoTalkDevice
 from .entity import VtoTalkEntity
 
@@ -24,6 +24,7 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities: AddE
             CodecRevertsSensor(device),
             SubStreamAudioSensor(device),
             TalkReportSensor(device),
+            CallStateSensor(device),
             PreviewReportSensor(device),
         ]
     )
@@ -152,3 +153,23 @@ class PreviewReportSensor(VtoTalkEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         return self.device.client_reports.get("preview") or {}
+
+
+class CallStateSensor(VtoTalkEntity, SensorEntity):
+    """idle / ringing / answered: what the call popup shows."""
+
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = CALL_STATES
+    _attr_icon = "mdi:phone-ring"
+
+    def __init__(self, device: VtoTalkDevice) -> None:
+        super().__init__(device, "call_state")
+
+    @property
+    def native_value(self) -> str:
+        return self.device.call_state
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        info = self.device.call_info()
+        return {"since": info["since"], "answered_by": info["by"], "source": info["source"]}

@@ -196,16 +196,89 @@ console.log("worklet resampler: ok");
   assert(stream, "camera element mounted");
   assert.strictEqual(stream.muted, true, "camera must start muted so iOS autoplays the picture");
   const listen = cam.shadowRoot.getElementById("listen");
-  assert.strictEqual(listen.textContent, "🔇");
+  assert(!listen.classList.contains("on"), "door sound starts off");
   listen.click();
   assert.strictEqual(stream.muted, false);
   assert.strictEqual(stream.video.muted, false);
-  assert.strictEqual(listen.textContent, "🔊");
+  assert(listen.classList.contains("on"));
   listen.click();
   assert.strictEqual(stream.muted, true);
   cam.shadowRoot.getElementById("talk").click();
   await new Promise((r) => setTimeout(r, 10));
   assert.strictEqual(stream.muted, false, "talking turns door audio on");
-  assert.strictEqual(listen.textContent, "🔊");
+  assert(listen.classList.contains("on"));
   console.log("camera muting: ok");
+
+  // ---- call mode: ringing -> answer -> mute -> hang up
+  const callCard = window.document.createElement("dahua-vto-talk-card");
+  callCard.setConfig({ open_door_entity: "button.domofon_open_door" });
+  window.document.body.appendChild(callCard);
+  callCard.hass = card.hass;
+  await new Promise((r) => setTimeout(r, 10));
+  const cr = callCard.shadowRoot;
+  assert.strictEqual(cr.getElementById("answer").hidden, true, "no call: no answer button");
+  window.dispatchEvent(new window.CustomEvent("dahua-vto-call", { detail: { entry_id: "e1", state: "ringing", since: new Date().toISOString() } }));
+  assert.strictEqual(cr.getElementById("answer").hidden, false);
+  assert.strictEqual(cr.getElementById("decline").hidden, false);
+  assert.strictEqual(cr.getElementById("talk").hidden, true);
+  assert.strictEqual(cr.getElementById("ringbar").hidden, false);
+  assert(cr.getElementById("ringtxt").textContent.includes("dzwoni"));
+  const subsBefore = subs.length;
+  cr.getElementById("answer").click();
+  await new Promise((r) => setTimeout(r, 10));
+  assert.strictEqual(subs.length, subsBefore + 1, "answer opens the talk channel");
+  assert(reports.some((m) => m.type === "dahua_vto_talk/call_action" && m.action === "answer"), "server told: answered");
+  assert.strictEqual(cr.getElementById("hangup").hidden, false);
+  assert.strictEqual(cr.getElementById("mute").hidden, false);
+  assert.strictEqual(cr.getElementById("answer").hidden, true);
+  await subs[subs.length - 1].cb({ event: "ready", handler_id: 4, sample_rate: 8000, codec: "PCMA/8000", packet_ms: 128 });
+  cr.getElementById("mute").click();
+  const n0 = sent.length;
+  workletNode.port.onmessage({ data: { pcm: new Int16Array(160).fill(5000).buffer, peak: 0.15 } });
+  assert.strictEqual(sent.length, n0 + 1, "muted mic still sends frames (no gaps at the door)");
+  assert(sent[n0].slice(1).every((b) => b === 0), "...but they are silent");
+  cr.getElementById("mute").click(); // unmute
+  workletNode.port.onmessage({ data: { pcm: new Int16Array(160).fill(5000).buffer, peak: 0.15 } });
+  assert(sent[n0 + 1].slice(1).some((b) => b !== 0), "unmuted: real audio again");
+  const unsubBefore = unsubscribed;
+  cr.getElementById("hangup").click();
+  await new Promise((r) => setTimeout(r, 10));
+  assert.strictEqual(unsubscribed, unsubBefore + 1, "hang up closes the talk channel");
+  assert(reports.some((m) => m.type === "dahua_vto_talk/call_action" && m.action === "hangup"));
+  // the server answers the hang-up with "idle"
+  window.dispatchEvent(new window.CustomEvent("dahua-vto-call", { detail: { entry_id: "e1", state: "idle" } }));
+  assert.strictEqual(cr.getElementById("talk").hidden, false, "back to the normal buttons");
+  console.log("call mode: ok");
+
+  // ---- popup over any page when it rings, closes on decline
+  const W = "window.__dahuaVtoCallWatcher";
+  const ha = window.document.createElement("home-assistant");
+  ha.hass = card.hass;
+  window.document.body.appendChild(ha);
+  window.eval(`${W}.onInfo({entry_id: 'e1', state: 'ringing', since: new Date().toISOString()})`);
+  const pop = window.document.querySelector(".dahua-vto-popup");
+  assert(pop, "popup shown");
+  const pcard = pop.querySelector("dahua-vto-talk-card");
+  await new Promise((r) => setTimeout(r, 10));
+  assert.strictEqual(pcard.shadowRoot.getElementById("answer").hidden, false);
+  assert(pcard.shadowRoot.getElementById("open"), "popup uses this device's card config (open button)");
+  pcard.shadowRoot.getElementById("decline").click();
+  await new Promise((r) => setTimeout(r, 10));
+  assert(!window.document.querySelector(".dahua-vto-popup"), "declined: popup gone");
+  // answered on another screen -> popup closes by itself
+  window.eval(`${W}.onInfo({entry_id: 'e1', state: 'ringing', since: new Date().toISOString()})`);
+  assert(window.document.querySelector(".dahua-vto-popup"));
+  window.eval(`${W}.onInfo({entry_id: 'e1', state: 'answered', by: 'other-ipad'})`);
+  assert(!window.document.querySelector(".dahua-vto-popup"), "answered elsewhere: popup gone");
+  // turned off on this device -> no popup
+  window.localStorage.setItem("dahua_vto_talk_popup", "off");
+  window.eval(`${W}.onInfo({entry_id: 'e1', state: 'ringing'})`);
+  assert(!window.document.querySelector(".dahua-vto-popup"), "popup off on this device");
+  window.localStorage.removeItem("dahua_vto_talk_popup");
+  window.eval(`${W}.onInfo({entry_id: 'e1', state: 'idle'})`);
+  console.log("call popup: ok");
+  setTimeout(() => {
+    const busy = [...window.document.querySelectorAll("dahua-vto-talk-card")].filter((c) => c._clock).length;
+    console.log("cards with a running clock:", busy);
+  }, 1500);
 })().catch((e) => { console.error(e); process.exit(1); });

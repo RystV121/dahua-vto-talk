@@ -86,6 +86,15 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         DOMAIN, "fix_codec", fix_codec, schema=SERVICE_SIMPLE_SCHEMA, supports_response=SupportsResponse.OPTIONAL
     )
     hass.services.async_register(DOMAIN, "stop", stop, schema=SERVICE_SIMPLE_SCHEMA)
+
+    async def ring(call: ServiceCall) -> None:
+        get_device(hass, call.data.get(ATTR_ENTRY)).start_ring("service")
+
+    async def dismiss(call: ServiceCall) -> None:
+        get_device(hass, call.data.get(ATTR_ENTRY)).call_action("dismiss", "service")
+
+    hass.services.async_register(DOMAIN, "ring", ring, schema=SERVICE_SIMPLE_SCHEMA)
+    hass.services.async_register(DOMAIN, "dismiss", dismiss, schema=SERVICE_SIMPLE_SCHEMA)
     return True
 
 

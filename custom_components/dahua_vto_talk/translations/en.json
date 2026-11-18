@@ -49,13 +49,16 @@
           "setup_receive_audio": "Also SETUP the door microphone track",
           "subtype": "RTSP stream (0 main, 1 sub)",
           "restore_codec_after_talk": "Restore the original codec after talking (for DMSS)",
-          "fix_sub_stream_audio": "Sub stream audio: G.711A too (for a WebRTC preview)"
+          "fix_sub_stream_audio": "Sub stream audio: G.711A too (for a WebRTC preview)",
+          "ring_entity": "Doorbell entity (shows the call popup)",
+          "ring_timeout": "Ringing timeout (s)"
         },
         "data_description": {
           "packet_bytes": "1024 is what go2rtc sends to Dahua doorbells. Smaller = lower delay.",
           "cancel_call_entity": "For example the Dahua integration's 'Cancel Call' button.",
           "restore_codec_after_talk": "If DMSS crackles on G.711A: G.711A only while Home Assistant talks. Disables the codec watchdog.",
-          "fix_sub_stream_audio": "WebRTC players cannot play the VTO's default PCM 16 kHz sound. Keeps the sub stream (subtype=1) audio on and in G.711A 8 kHz."
+          "fix_sub_stream_audio": "WebRTC players cannot play the VTO's default PCM 16 kHz sound. Keeps the sub stream (subtype=1) audio on and in G.711A 8 kHz.",
+          "ring_entity": "When it turns on (binary_sensor/input_boolean/switch), fires (event) or changes (sensor), every open Home Assistant screen with the card loaded shows the call popup. E.g. the doorbell/button sensor of the Dahua integration."
         }
       }
     }
@@ -106,6 +109,14 @@
       },
       "codec_reverts": {
         "name": "Codec reverts"
+      },
+      "call_state": {
+        "name": "Call",
+        "state": {
+          "idle": "Idle",
+          "ringing": "Ringing",
+          "answered": "Answered"
+        }
       }
     },
     "switch": {
@@ -184,6 +195,26 @@
         "config_entry_id": {
           "name": "Config entry",
           "description": "Only needed with more than one door station."
+        }
+      }
+    },
+    "ring": {
+      "name": "Show the call popup",
+      "description": "Shows \"someone is ringing\" on every open Home Assistant screen that has the card loaded.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Door station",
+          "description": "Only with several door stations."
+        }
+      }
+    },
+    "dismiss": {
+      "name": "Close the call popup",
+      "description": "Ends the ringing / call state and closes the popup everywhere.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Door station",
+          "description": "Only with several door stations."
         }
       }
     }

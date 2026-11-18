@@ -22,6 +22,12 @@ from .const import (
     CONF_CANCEL_CALL_ENTITY,
     CONF_CHANNEL,
     CONF_FIX_SUB_STREAM,
+    CONF_RING_ENTITY,
+    CONF_RING_TIMEOUT,
+    CALL_ANSWERED,
+    CALL_IDLE,
+    CALL_RINGING,
+    DEFAULT_RING_TIMEOUT,
     CONF_FORCE_CODEC,
     CONF_HTTP_PORT,
     CONF_L16_LITTLE_ENDIAN,
@@ -136,6 +142,16 @@ class VtoTalkDevice:
         self.talk_gain_db = DEFAULT_TALK_GAIN_DB  # the number entity restores it
         self.preview_gain_db = 0.0  # applied by the card in the browser
 
+        # call popup: idle -> ringing -> answered -> idle
+        self.ring_entity: str = opts.get(CONF_RING_ENTITY, "") or ""
+        self.ring_timeout: int = int(opts.get(CONF_RING_TIMEOUT, DEFAULT_RING_TIMEOUT))
+        self.call_state = CALL_IDLE
+        self.call_since: datetime | None = None
+        self.call_by: str | None = None
+        self.call_source: str | None = None
+        self._call_listeners: set = set()
+        self._call_timer = None
+
         # state shown by entities
         self.talk_state = TALK_IDLE
         self.talk_client: str | None = None
@@ -172,11 +188,18 @@ class VtoTalkDevice:
         )
         # first check shortly after start, without delaying setup
         self._unsubs.append(async_call_later(self.hass, 2, self._watchdog))
+        if self.ring_entity:
+            from homeassistant.helpers.event import async_track_state_change_event  # noqa: PLC0415
+
+            self._unsubs.append(
+                async_track_state_change_event(self.hass, [self.ring_entity], self._ring_entity_changed)
+            )
 
     async def async_stop(self) -> None:
         for unsub in self._unsubs:
             unsub()
         self._unsubs.clear()
+        self._cancel_call_timer()
         await self.stop_talk()
 
     # --------------------------------------------------------------- codec
@@ -518,6 +541,91 @@ class VtoTalkDevice:
         if self._active is not None and self._active.client == "card":
             self._active.talker.gain_db = self.talk_gain_db
 
+    # ---------------------------------------------------------- call popup
+
+    @callback
+    def _ring_entity_changed(self, event) -> None:
+        old = event.data.get("old_state")
+        new = event.data.get("new_state")
+        if new is None or new.state in ("unavailable", "unknown"):
+            return
+        domain = new.entity_id.split(".", 1)[0]
+        if domain in ("binary_sensor", "input_boolean", "switch"):
+            ring = new.state == "on" and (old is None or old.state != "on")
+        else:
+            # event entities (state = time of the last event) and sensors:
+            # any real change means a new ring
+            ring = old is not None and old.state not in ("unavailable", "unknown") and old.state != new.state
+        if ring:
+            self.start_ring(f"entity:{new.entity_id}")
+
+    @callback
+    def add_call_listener(self, listener):
+        self._call_listeners.add(listener)
+        listener(self.call_info())
+
+        @callback
+        def remove() -> None:
+            self._call_listeners.discard(listener)
+
+        return remove
+
+    def call_info(self) -> dict[str, Any]:
+        return {
+            "entry_id": self.entry.entry_id,
+            "title": self.entry.title,
+            "state": self.call_state,
+            "since": self.call_since.isoformat() if self.call_since else None,
+            "by": self.call_by,
+            "source": self.call_source,
+        }
+
+    @callback
+    def _set_call(self, state: str, by: str | None = None, source: str | None = None) -> None:
+        self._cancel_call_timer()
+        self.call_state = state
+        self.call_since = dt_util.utcnow() if state != CALL_IDLE else None
+        self.call_by = by
+        if source is not None or state == CALL_IDLE:
+            self.call_source = source
+        if state == CALL_RINGING:
+            self._call_timer = async_call_later(self.hass, self.ring_timeout, self._ring_timed_out)
+        elif state == CALL_ANSWERED:
+            # nobody hangs up forever: free the popup after 15 minutes
+            self._call_timer = async_call_later(self.hass, 900, self._ring_timed_out)
+        info = self.call_info()
+        for listener in list(self._call_listeners):
+            listener(info)
+        self._refresh()
+
+    def _cancel_call_timer(self) -> None:
+        if self._call_timer is not None:
+            self._call_timer()
+            self._call_timer = None
+
+    @callback
+    def _ring_timed_out(self, _now=None) -> None:
+        self._call_timer = None
+        self._set_call(CALL_IDLE)
+
+    @callback
+    def start_ring(self, source: str = "service") -> None:
+        if self.call_state == CALL_ANSWERED:
+            return  # already talking: a second press does not pop up again
+        _LOGGER.info("%s: ringing (%s)", self.host, source)
+        self._set_call(CALL_RINGING, source=source)
+
+    @callback
+    def call_action(self, action: str, client: str | None = None) -> None:
+        """answer / hangup / decline, from the card or a service."""
+        if action == "answer":
+            self._set_call(CALL_ANSWERED, by=client)
+        elif action in ("hangup", "decline", "dismiss"):
+            if self.call_state != CALL_IDLE:
+                self._set_call(CALL_IDLE, by=client)
+            if action == "hangup" and self._active is not None and self._active.client == "card":
+                self.hass.async_create_task(self.stop_talk(self._active))
+
     @callback
     def store_client_report(self, kind: str, data: dict[str, Any]) -> None:
         self.client_reports[kind] = {**data, "received": dt_util.utcnow().isoformat()}
@@ -568,6 +676,8 @@ class VtoTalkDevice:
             "sub_stream_codec": self.sub_codec,
             "sub_stream_audio": self.sub_stream_audio,
             "talk_verdict": self.talk_verdict(),
+            "call": self.call_info(),
+            "ring_entity": self.ring_entity,
             "last_talk_server": self.last_talk_server,
             "client_reports": self.client_reports,
             "last_talk_seconds": round(len(self.last_talk_pcm) / 2 / self.last_talk_rate, 1),

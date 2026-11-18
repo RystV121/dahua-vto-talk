@@ -48,12 +48,14 @@
           "l16_little_endian": "L16 little-endian (tylko gdy VTO zostaje na L16)",
           "setup_receive_audio": "Zestawiaj też ścieżkę mikrofonu domofonu",
           "subtype": "Strumień RTSP (0 główny, 1 pomocniczy)",
-          "restore_codec_after_talk": "Przywróć oryginalny kodek po rozmowie (dla DMSS)"
+          "restore_codec_after_talk": "Przywróć oryginalny kodek po rozmowie (dla DMSS)",
+          "fix_sub_stream_audio": "Dźwięk podstrumienia też w G.711A (dla podglądu WebRTC)"
         },
         "data_description": {
           "packet_bytes": "1024 to tyle, ile go2rtc wysyła do dzwonków Dahua. Mniej = mniejsze opóźnienie.",
           "cancel_call_entity": "Np. przycisk 'Cancel Call' z integracji Dahua.",
-          "restore_codec_after_talk": "Gdy DMSS trzeszczy na G.711A: kodek będzie G.711A tylko w czasie mówienia z HA. Wyłącza strażnika kodeka."
+          "restore_codec_after_talk": "Gdy DMSS trzeszczy na G.711A: kodek będzie G.711A tylko w czasie mówienia z HA. Wyłącza strażnika kodeka.",
+          "fix_sub_stream_audio": "Odtwarzacze WebRTC nie odtworzą domyślnego dźwięku PCM 16 kHz. Pilnuje, by podstrumień (subtype=1) miał włączony dźwięk w G.711A 8 kHz."
         }
       }
     }

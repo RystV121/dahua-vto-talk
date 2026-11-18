@@ -42,10 +42,10 @@ def md5(s: str) -> str:
 
 
 ENCODE_TEMPLATE = """table.Encode[0].ExtraFormat[0].Audio.Bitrate=64
-table.Encode[0].ExtraFormat[0].Audio.Compression=PCM
+table.Encode[0].ExtraFormat[0].Audio.Compression={sub_comp}
 table.Encode[0].ExtraFormat[0].Audio.Depth=16
-table.Encode[0].ExtraFormat[0].Audio.Frequency=16000
-table.Encode[0].ExtraFormat[0].AudioEnable=true
+table.Encode[0].ExtraFormat[0].Audio.Frequency={sub_freq}
+table.Encode[0].ExtraFormat[0].AudioEnable={sub_enabled}
 table.Encode[0].MainFormat[0].Audio.Bitrate=64
 table.Encode[0].MainFormat[0].Audio.Compression={comp}
 table.Encode[0].MainFormat[0].Audio.Depth=16
@@ -85,6 +85,10 @@ class FakeVto:
         self.password = password
         self.compression = "PCM"
         self.frequency = 16000
+        # the sub stream (subtype=1) ships with its sound off on many units
+        self.sub_compression = "PCM"
+        self.sub_frequency = "16000"
+        self.sub_enabled = "false"
         self.revert_after = revert_after
         self.l16_audible = l16_audible
         self.realm = "Login to 0123456789abcdef0123456789abcdef"
@@ -344,13 +348,23 @@ class FakeVto:
         name = request.match_info["name"]
         action = request.query.get("action")
         if name == "configManager.cgi" and action == "getConfig" and request.query.get("name") == "Encode":
-            return web.Response(text=ENCODE_TEMPLATE.format(comp=self.compression, freq=self.frequency))
+            return web.Response(text=ENCODE_TEMPLATE.format(
+                    comp=self.compression,
+                    freq=self.frequency,
+                    sub_comp=self.sub_compression,
+                    sub_freq=self.sub_frequency,
+                    sub_enabled=self.sub_enabled,
+                ))
         if name == "configManager.cgi" and action == "setConfig":
             self.set_config_calls += 1
             comp = request.query.get("Encode[0].MainFormat[0].Audio.Compression")
             freq = request.query.get("Encode[0].MainFormat[0].Audio.Frequency")
             if comp and freq:
                 self.set_codec(comp, int(freq))
+            q = request.query
+            self.sub_compression = q.get("Encode[0].ExtraFormat[0].Audio.Compression", self.sub_compression)
+            self.sub_frequency = q.get("Encode[0].ExtraFormat[0].Audio.Frequency", self.sub_frequency)
+            self.sub_enabled = q.get("Encode[0].ExtraFormat[0].AudioEnable", self.sub_enabled)
             return web.Response(text="OK\r\n")
         if name == "magicBox.cgi" and action == "getSerialNo":
             return web.Response(text=f"sn={SERIAL}\r\n")

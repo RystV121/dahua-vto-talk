@@ -18,7 +18,7 @@
  * entry_id: ...                           # only with several door stations
  */
 
-const CARD_VERSION = "0.1.2";
+const CARD_VERSION = "0.1.3";
 
 const WORKLET_SOURCE = `
 class VtoPcmSender extends AudioWorkletProcessor {
@@ -113,6 +113,11 @@ const TEXT = {
     packets: "pakiety",
     ended: "Połączenie zakończone",
     no_entity: "Nie ma takiej encji kamery",
+    sent: "Wysłano",
+    loudest: "max głośność",
+    silent: "⚠ mikrofon dawał ciszę – sprawdź uprawnienia mikrofonu albo spróbuj w Safari",
+    playback: "▶ Odsłuchaj, co poszło do furtki",
+    no_recording: "Brak nagrania (zaktualizuj integrację i zrestartuj HA)",
   },
   en: {
     talk: "Talk",
@@ -129,6 +134,11 @@ const TEXT = {
     packets: "packets",
     ended: "Call ended",
     no_entity: "Camera entity not found",
+    sent: "Sent",
+    loudest: "loudest",
+    silent: "⚠ the microphone gave silence – check mic permission or try Safari",
+    playback: "▶ Play back what went to the gate",
+    no_recording: "No recording (update the integration and restart HA)",
   },
 };
 
@@ -223,6 +233,10 @@ class DahuaVtoTalkCard extends HTMLElement {
         .status { padding: 0 16px 12px; font-size: 13px; color: var(--secondary-text-color); display:flex; gap:8px; align-items:center; }
         .status.err { color: var(--error-color, #c62828); }
         .meter { width: 60px; height: 6px; background: var(--divider-color); border-radius: 3px; overflow: hidden; }
+        .summary { padding: 0 16px 12px; font-size: 13px; color: var(--secondary-text-color); display:flex; gap:8px; align-items:center; flex-wrap: wrap; }
+        .summary.warn { color: var(--warning-color, #f57c00); }
+        .summary button { border: 0; border-radius: 16px; padding: 6px 12px; font-size: 13px; cursor: pointer;
+          background: var(--secondary-background-color, #444); color: var(--primary-text-color); }
         .meter > div { height: 100%; width: 0; background: var(--success-color, #2e7d32); transition: width .1s; }
       </style>
       <ha-card ${this._config.title ? `header="${this._config.title}"` : ""}>
@@ -233,6 +247,7 @@ class DahuaVtoTalkCard extends HTMLElement {
           ${this._config.open_door_entity ? `<button class="open" id="open">🔓 ${t.open}</button>` : ""}
         </div>
         <div class="status" id="status"><div class="meter"><div id="lvl"></div></div><span id="stxt">${t.idle}</span></div>
+        <div class="summary" id="summary" hidden><span id="sumtxt"></span><button id="playback">${t.playback}</button></div>
       </ha-card>`;
     const talk = this.shadowRoot.getElementById("talk");
     if (this._config.mode === "hold") {
@@ -248,6 +263,7 @@ class DahuaVtoTalkCard extends HTMLElement {
     if (open) open.addEventListener("click", () => this._openDoor());
     const listen = this.shadowRoot.getElementById("listen");
     if (listen) listen.addEventListener("click", () => this._setListening(!this._listening));
+    this.shadowRoot.getElementById("playback").addEventListener("click", () => this._playBack());
     this._render();
     await this._mountCamera();
   }
@@ -334,6 +350,17 @@ class DahuaVtoTalkCard extends HTMLElement {
     } else if (this._status) text = this._status;
     stxt.textContent = text;
     status.classList.toggle("err", !!this._error);
+    const summary = root.getElementById("summary");
+    if (summary) {
+      const s = this._summary;
+      summary.hidden = !s || this._state !== "idle";
+      if (s) {
+        const quiet = s.peak < 0.02;
+        summary.classList.toggle("warn", quiet);
+        root.getElementById("sumtxt").textContent =
+          `${t.sent} ${s.seconds.toFixed(1)} s • ${t.loudest} ${Math.round(s.peak * 100)}%` + (quiet ? ` • ${t.silent}` : "");
+      }
+    }
     // square root so normal speech (peaks around 0.05-0.3) is clearly visible
     if (lvl) lvl.style.width = `${Math.min(100, Math.round(Math.sqrt(this._level) * 130))}%`;
   }
@@ -371,6 +398,10 @@ class DahuaVtoTalkCard extends HTMLElement {
     const t = this._t;
     this._error = "";
     this._status = "";
+    this._summary = null;
+    this._sentFrames = 0;
+    this._sentSamples = 0;
+    this._maxPeak = 0;
     this._state = "connecting";
     this._render();
     if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -443,6 +474,9 @@ class DahuaVtoTalkCard extends HTMLElement {
       bytes[0] = this._handlerId;
       bytes.set(new Uint8Array(buf), 1);
       sock.send(bytes);
+      this._sentSamples += buf.byteLength / 2;
+      this._sentRate = rate;
+      if (peak > this._maxPeak) this._maxPeak = peak;
       if (!this._meterTick || performance.now() - this._meterTick > 100) {
         this._meterTick = performance.now();
         this._render();
@@ -518,12 +552,36 @@ class DahuaVtoTalkCard extends HTMLElement {
       this._ctx = null;
     }
     if (this._config && this._config.mute_while_talking) this._setVideosMuted(!this._listening);
+    if (this._sentSamples > 0) {
+      this._summary = { seconds: this._sentSamples / (this._sentRate || 8000), peak: this._maxPeak };
+    }
+    this._sentSamples = 0;
     this._handlerId = null;
     this._stats = null;
     this._level = 0;
     if (!keepMessage) { this._error = ""; this._status = ""; }
     this._state = "idle";
     this._render();
+  }
+
+  async _playBack() {
+    const t = this._t;
+    const q = this._config.entry_id ? `?entry_id=${encodeURIComponent(this._config.entry_id)}` : "";
+    const path = `/api/dahua_vto_talk/last_talk.wav${q}`;
+    try {
+      const res = this._hass.fetchWithAuth
+        ? await this._hass.fetchWithAuth(path)
+        : await fetch(path, { headers: { Authorization: `Bearer ${this._hass.auth.data.access_token}` } });
+      if (!res.ok) throw new Error(t.no_recording);
+      const url = URL.createObjectURL(await res.blob());
+      if (this._audio) { try { this._audio.pause(); } catch (e) { /* ignore */ } }
+      this._audio = new Audio(url);
+      this._audio.onended = () => URL.revokeObjectURL(url);
+      await this._audio.play();
+    } catch (e) {
+      this._error = (e && e.message) || t.no_recording;
+      this._render();
+    }
   }
 
   async _openDoor() {

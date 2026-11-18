@@ -21,6 +21,7 @@ from homeassistant.util import dt as dt_util
 from .const import (
     CONF_CANCEL_CALL_ENTITY,
     CONF_CHANNEL,
+    CONF_FIX_SUB_STREAM,
     CONF_FORCE_CODEC,
     CONF_HTTP_PORT,
     CONF_L16_LITTLE_ENDIAN,
@@ -107,6 +108,13 @@ class VtoTalkDevice:
         self.cancel_call_entity: str = opts.get(CONF_CANCEL_CALL_ENTITY, "") or ""
         self.restore_codec: bool = opts.get(CONF_RESTORE_CODEC, False)
         self._original_codec: tuple[str, str] | None = None
+        self.fix_sub_stream: bool = opts.get(CONF_FIX_SUB_STREAM, True)
+        self.sub_codec: str | None = None
+        # what the last card session actually sent (16-bit LE PCM), for the
+        # card's "play back what went to the gate" check
+        self.last_talk_pcm: bytes = b""
+        self.last_talk_rate: int = 8000
+        self.last_talk_peak: float = 0.0
 
         self.http = DahuaHttp(
             async_get_clientsession(hass, verify_ssl=False),
@@ -167,8 +175,38 @@ class VtoTalkDevice:
             return
         try:
             await self.ensure_codec()
+            await self.ensure_sub_stream_audio()
         except DahuaHttpError as err:
             _LOGGER.debug("Codec watchdog on %s: %s", self.host, err)
+
+    async def ensure_sub_stream_audio(self) -> bool:
+        """Keep sub stream sound on and in G.711A so a WebRTC preview has audio.
+
+        The VTO sends PCM 16 kHz on the sub stream by default; browsers (WebRTC)
+        only play PCMA/PCMU/Opus, so a go2rtc preview of subtype=1 is silent.
+        """
+        if not self.fix_sub_stream or self.subtype == 1:
+            return False
+        table = await self.http.get_config("Encode")
+        base = f"Encode[{self.channel - 1}].ExtraFormat[0]"
+        comp = table.get(f"table.{base}.Audio.Compression")
+        freq = table.get(f"table.{base}.Audio.Frequency")
+        enabled = table.get(f"table.{base}.AudioEnable")
+        if comp is None:
+            return False  # no sub stream on this model
+        if comp == WANTED_COMPRESSION and freq == WANTED_FREQUENCY and enabled == "true":
+            self.sub_codec = f"{comp}/{freq}"
+            return False
+        await self.http.set_config(
+            {
+                f"{base}.AudioEnable": "true",
+                f"{base}.Audio.Compression": WANTED_COMPRESSION,
+                f"{base}.Audio.Frequency": WANTED_FREQUENCY,
+            }
+        )
+        _LOGGER.info("%s sub stream audio was %s/%s (enabled=%s); set to G.711A/8000", self.host, comp, freq, enabled)
+        self.sub_codec = f"{WANTED_COMPRESSION}/{WANTED_FREQUENCY}"
+        return True
 
     @property
     def _encode_format(self) -> tuple[str, int]:
@@ -349,6 +387,10 @@ class VtoTalkDevice:
                     self._set_state(TALK_ERROR if reason else TALK_IDLE, None, reason)
 
     async def _close_handle(self, handle: TalkHandle) -> None:
+        if handle.client == "card" and handle.talker.record:
+            self.last_talk_pcm = bytes(handle.talker.record)
+            self.last_talk_rate = handle.sample_rate
+            self.last_talk_peak = round(handle.talker.max_peak / 32768, 3)
         handle.talker.finish()
         if not handle.task.done():
             try:
@@ -427,6 +469,9 @@ class VtoTalkDevice:
             "http_port": self.http_port,
             "talk_state": self.talk_state,
             "main_codec": self.main_codec,
+            "sub_stream_codec": self.sub_codec,
+            "last_talk_seconds": round(len(self.last_talk_pcm) / 2 / self.last_talk_rate, 1),
+            "last_talk_peak": self.last_talk_peak,
             "backchannel_format": self.backchannel_format,
             "codec_reverts": self.codec_reverts,
             "last_revert": self.last_revert.isoformat() if self.last_revert else None,

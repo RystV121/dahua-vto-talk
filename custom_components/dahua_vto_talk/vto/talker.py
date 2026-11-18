@@ -41,6 +41,10 @@ class Talker:
         self.dropped_bytes = 0
         self.received_bytes = 0
         self.peak = 0
+        self.max_peak = 0
+        # copy of what was fed (PCM LE), capped, so the user can hear it back
+        self.record = bytearray()
+        self.record_limit = encoder.clock_rate * 2 * 60
 
     @property
     def buffered_ms(self) -> int:
@@ -52,6 +56,8 @@ class Talker:
             return
         self.received_bytes += len(pcm_le)
         self._update_peak(pcm_le)
+        if len(self.record) < self.record_limit:
+            self.record += pcm_le[: self.record_limit - len(self.record)]
         self._buffer += self.encoder.encode(pcm_le)
         overflow = len(self._buffer) - self.max_buffer
         if overflow > 0:
@@ -69,6 +75,7 @@ class Talker:
             v = abs(int.from_bytes(pcm_le[i : i + 2], "little", signed=True))
             peak = max(peak, v)
         self.peak = peak
+        self.max_peak = max(self.max_peak, peak)
 
     def finish(self) -> None:
         """Send what is buffered (padded with silence) and stop."""

@@ -126,6 +126,8 @@ async def test_watchdog_sets_codec_and_counts_reverts(hass: HomeAssistant, vto: 
     assert (vto.compression, vto.frequency) == ("G.711A", 8000)
     assert hass.states.get(entity(hass, "sensor", "main_codec")).state == "G.711A/8000"
     assert hass.states.get(entity(hass, "sensor", "codec_reverts")).state == "0"
+    # the sub stream gets sound in G.711A too, so a WebRTC preview is not silent
+    assert (vto.sub_enabled, vto.sub_compression, vto.sub_frequency) == ("true", "G.711A", "8000")
 
     # the real VTO went back to PCM on its own; the watchdog notices and fixes it
     vto.compression, vto.frequency = "PCM", 16000
@@ -212,7 +214,15 @@ async def test_busy_backchannel_reports_clear_error(hass: HomeAssistant, vto: Fa
 # ----------------------------------------------------------- websocket talk
 
 
-async def test_websocket_talk_end_to_end(hass: HomeAssistant, vto: FakeVto, hass_ws_client) -> None:
+async def test_sub_stream_fix_can_be_turned_off(hass: HomeAssistant, vto: FakeVto) -> None:
+    await setup_entry(hass, vto, {"fix_sub_stream_audio": False})
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=3))
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert vto.compression == "G.711A"
+    assert (vto.sub_enabled, vto.sub_compression) == ("false", "PCM")
+
+
+async def test_websocket_talk_end_to_end(hass: HomeAssistant, vto: FakeVto, hass_ws_client, hass_client) -> None:
     """Browser mic -> websocket binary frames -> HA -> RTSP backchannel -> door speaker."""
     await setup_entry(hass, vto)
     client = await hass_ws_client(hass)
@@ -262,6 +272,21 @@ async def test_websocket_talk_end_to_end(hass: HomeAssistant, vto: FakeVto, hass
     assert abs(dominant_frequency(heard[2000:10000]) - 600) <= 10
     assert vto.talk_holder is None, "talk track must be released when the card stops"
     assert hass.states.get(entity(hass, "sensor", "talk_status")).state == "idle"
+
+    # the card's "play back what went to the gate": exactly what was sent
+    http = await hass_client()
+    resp = await http.get("/api/dahua_vto_talk/last_talk.wav")
+    assert resp.status == 200
+    assert resp.headers["Content-Type"] == "audio/wav"
+    body = await resp.read()
+    import io, wave  # noqa: E401, PLC0415
+
+    with wave.open(io.BytesIO(body)) as wav:
+        assert wav.getframerate() == 8000
+        frames = wav.readframes(wav.getnframes())
+    assert frames == pcm
+    samples = [int.from_bytes(frames[i : i + 2], "little", signed=True) for i in range(0, len(frames), 2)]
+    assert abs(dominant_frequency(samples[2000:10000]) - 600) <= 10
 
 
 async def test_websocket_talk_error_event(hass: HomeAssistant, vto: FakeVto, hass_ws_client) -> None:

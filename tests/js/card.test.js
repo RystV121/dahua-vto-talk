@@ -145,6 +145,11 @@ console.log("worklet resampler: ok");
   assert.strictEqual(unsubscribed, 1);
   assert.strictEqual(tracksStopped, 1);
   assert(talk.textContent.includes("Mów"));
+  // after stopping: how much was sent and how loud, plus the playback button
+  const summary = root.getElementById("summary");
+  assert.strictEqual(summary.hidden, false);
+  assert(root.getElementById("sumtxt").textContent.includes("Wysłano 0.0 s • max głośność 3%"), root.getElementById("sumtxt").textContent);
+  assert(!summary.classList.contains("warn"));
 
   // error path
   talk.click();

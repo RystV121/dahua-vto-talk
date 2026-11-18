@@ -21,6 +21,7 @@ from .const import (
     CONF_L16_LITTLE_ENDIAN,
     CONF_PACKET_BYTES,
     CONF_RESTORE_CODEC,
+    CONF_FIX_SUB_STREAM,
     CONF_RTSP_PORT,
     CONF_SETUP_RECEIVE_AUDIO,
     CONF_SUBTYPE,
@@ -152,6 +153,7 @@ class VtoTalkOptionsFlow(OptionsFlow):
             {
                 vol.Required(CONF_FORCE_CODEC, default=o.get(CONF_FORCE_CODEC, True)): bool,
                 vol.Required(CONF_RESTORE_CODEC, default=o.get(CONF_RESTORE_CODEC, False)): bool,
+                vol.Required(CONF_FIX_SUB_STREAM, default=o.get(CONF_FIX_SUB_STREAM, True)): bool,
                 vol.Required(
                     CONF_WATCHDOG_INTERVAL, default=o.get(CONF_WATCHDOG_INTERVAL, DEFAULT_WATCHDOG_INTERVAL)
                 ): vol.All(vol.Coerce(int), vol.Range(min=10, max=3600)),

@@ -97,6 +97,9 @@ async def _register_card(hass: HomeAssistant) -> None:
 
     path = Path(__file__).parent / "frontend" / "dahua-vto-talk-card.js"
     await http.async_register_static_paths([StaticPathConfig(CARD_URL, str(path), cache_headers=False)])
+    from .http_view import LastTalkView  # noqa: PLC0415
+
+    hass.http.register_view(LastTalkView())
     if "frontend" in hass.config.components:
         from homeassistant.components.frontend import add_extra_js_url  # noqa: PLC0415
 

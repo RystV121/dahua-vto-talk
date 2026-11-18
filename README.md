@@ -112,9 +112,22 @@ camera_card:
 open_door_entity: button.domofon_open_door
 ```
 
+Dźwięk w podglądzie: domyślnie podstrumień VTO ma dźwięk wyłączony albo w PCM
+16 kHz, którego przeglądarka przez WebRTC nie odtworzy. Integracja sama ustawia
+podstrumieniowi dźwięk **włączony, G.711A 8 kHz** (opcja „Dźwięk podstrumienia
+też w G.711A”, domyślnie włączona). Dźwięk włączasz przyciskiem 🔊 na karcie.
+
 `#backchannel=0` jest ważne: go2rtc nie zajmie wtedy kanału mówienia, z którego
 korzysta przycisk **Mów**. Zamiast pełnego adresu możesz też podać nazwę
 strumienia z `go2rtc.yaml` (np. `url: domofon_sub`).
+
+### Czy mój głos dochodzi do furtki?
+
+Po zakończeniu mówienia karta pokazuje `Wysłano 6.2 s • max głośność 35%` i
+przycisk **▶ Odsłuchaj, co poszło do furtki**: odtwarza dokładnie ten dźwięk,
+który integracja wysłała do domofonu. Słychać siebie wyraźnie = po stronie HA
+wszystko gra. Jeśli głośność jest bliska 0%, mikrofon iPada dawał ciszę
+(uprawnienia aplikacji HA do mikrofonu albo spróbuj w Safari).
 
 ### Opcja: przed mówieniem zakończ dzwonienie
 
@@ -186,7 +199,7 @@ actions:
   Dahua i przy L16 też jest cisza, więc atrapa jest wierna. Pakiety go2rtc
   (1024 B, znacznik czasu 0, marker) są identyczne z pakietami tej integracji,
   ta sama sekwencja żądań RTSP.
-- **39 testów automatycznych** w prawdziwym Home Assistant (config flow, opcje,
+- **41 testów automatycznych** w prawdziwym Home Assistant (config flow, opcje,
   strażnik, ton testowy, websocket, zajęty kanał, złe hasło, rozłączenie,
   przywracanie kodeka, diagnostyka).
 - **Pełny test w prawdziwym Chrome**: uruchomiony Home Assistant z frontendem,
@@ -213,7 +226,7 @@ aktualizuje się razem z integracją).
 
 ```
 pip install pytest-homeassistant-custom-component pytest-timeout
-pytest tests                                   # 39 testów, w tym atrapa VTO
+pytest tests                                   # 41 testów, w tym atrapa VTO
 GO2RTC_BIN=/ścieżka/go2rtc pytest tests        # + porównanie z prawdziwym go2rtc
 npm i jsdom && node tests/js/card.test.js      # karta: resampler, przyciski, kamera
 ```

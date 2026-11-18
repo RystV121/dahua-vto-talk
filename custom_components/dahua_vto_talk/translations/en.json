@@ -48,12 +48,14 @@
           "l16_little_endian": "L16 little-endian (only if the VTO stays on L16)",
           "setup_receive_audio": "Also SETUP the door microphone track",
           "subtype": "RTSP stream (0 main, 1 sub)",
-          "restore_codec_after_talk": "Restore the original codec after talking (for DMSS)"
+          "restore_codec_after_talk": "Restore the original codec after talking (for DMSS)",
+          "fix_sub_stream_audio": "Sub stream audio: G.711A too (for a WebRTC preview)"
         },
         "data_description": {
           "packet_bytes": "1024 is what go2rtc sends to Dahua doorbells. Smaller = lower delay.",
           "cancel_call_entity": "For example the Dahua integration's 'Cancel Call' button.",
-          "restore_codec_after_talk": "If DMSS crackles on G.711A: G.711A only while Home Assistant talks. Disables the codec watchdog."
+          "restore_codec_after_talk": "If DMSS crackles on G.711A: G.711A only while Home Assistant talks. Disables the codec watchdog.",
+          "fix_sub_stream_audio": "WebRTC players cannot play the VTO's default PCM 16 kHz sound. Keeps the sub stream (subtype=1) audio on and in G.711A 8 kHz."
         }
       }
     }

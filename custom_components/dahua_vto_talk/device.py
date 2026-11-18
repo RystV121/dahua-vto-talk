@@ -117,6 +117,10 @@ class VtoTalkDevice:
         self.last_talk_pcm: bytes = b""
         self.last_talk_rate: int = 8000
         self.last_talk_peak: float = 0.0
+        # what HA itself saw of the last card session, and what the browser
+        # reported (sensors "talk_report" / "preview_report")
+        self.last_talk_server: dict[str, Any] | None = None
+        self.client_reports: dict[str, dict[str, Any]] = {}
 
         self.http = DahuaHttp(
             async_get_clientsession(hass, verify_ssl=False),
@@ -409,10 +413,25 @@ class VtoTalkDevice:
                     self._set_state(TALK_ERROR if reason else TALK_IDLE, None, reason)
 
     async def _close_handle(self, handle: TalkHandle) -> None:
-        if handle.client == "card" and handle.talker.record:
-            self.last_talk_pcm = bytes(handle.talker.record)
-            self.last_talk_rate = handle.sample_rate
+        if handle.client == "card":
+            record = bytes(handle.talker.record)
+            if record:
+                self.last_talk_pcm = record
+                self.last_talk_rate = handle.sample_rate
             self.last_talk_peak = round(handle.talker.max_peak / 32768, 3)
+            self.last_talk_server = {
+                "opened": handle.opened.isoformat(),
+                "closed": dt_util.utcnow().isoformat(),
+                "codec": repr(handle.encoder),
+                "received_seconds": round(handle.talker.received_bytes / 2 / handle.sample_rate, 1),
+                "peak": self.last_talk_peak,
+                "rms": _rms(record),
+                "packets_sent": handle.session.packets_sent,
+                "dropped_ms": int(handle.talker.dropped_bytes / handle.encoder.byte_rate * 1000),
+                "close_reason": handle.session.close_reason,
+            }
+            _LOGGER.info("Talk from the card ended: %s", self.last_talk_server)
+            self._refresh()
         handle.talker.finish()
         if not handle.task.done():
             try:
@@ -484,6 +503,41 @@ class VtoTalkDevice:
         pcm = await _decode_media(self.hass, media_content_id)
         await self.play_pcm(pcm, 8000, "media")
 
+    @callback
+    def store_client_report(self, kind: str, data: dict[str, Any]) -> None:
+        self.client_reports[kind] = {**data, "received": dt_util.utcnow().isoformat()}
+        _LOGGER.info("Card report (%s): %s", kind, data)
+        self._refresh()
+
+    def talk_verdict(self) -> str:
+        """One line: where the voice got lost, if it did."""
+        text = self._verdict()
+        if (self.hass.config.language or "").startswith("pl"):
+            for en, pl in _VERDICT_PL.items():
+                text = text.replace(en, pl)
+        return text
+
+    def _verdict(self) -> str:
+        client = self.client_reports.get("talk")
+        server = self.last_talk_server
+        if client is None and server is None:
+            return "no data"
+        if client and client.get("error"):
+            return f"card error: {client['error']}"[:250]
+        if client is not None and not client.get("frames_sent"):
+            return "browser sent no audio (microphone/AudioContext did not start)"
+        if client is not None and not client.get("max_peak"):
+            return "microphone gave pure silence"
+        if server is not None and server["received_seconds"] < 0.3:
+            return "audio did not reach Home Assistant"
+        if server is not None and not server["packets_sent"]:
+            return "nothing was sent to the door"
+        if server is not None and server["peak"] < 0.01:
+            return f"very quiet: max {round(server['peak'] * 100, 1)}%"
+        seconds = server["received_seconds"] if server else client.get("seconds")
+        peak = server["peak"] if server else client.get("max_peak", 0)
+        return f"OK: {seconds} s, max {round(peak * 100)}%"
+
     def diagnostics(self) -> dict[str, Any]:
         return {
             "host": self.host,
@@ -493,6 +547,9 @@ class VtoTalkDevice:
             "main_codec": self.main_codec,
             "sub_stream_codec": self.sub_codec,
             "sub_stream_audio": self.sub_stream_audio,
+            "talk_verdict": self.talk_verdict(),
+            "last_talk_server": self.last_talk_server,
+            "client_reports": self.client_reports,
             "last_talk_seconds": round(len(self.last_talk_pcm) / 2 / self.last_talk_rate, 1),
             "last_talk_peak": self.last_talk_peak,
             "backchannel_format": self.backchannel_format,
@@ -507,6 +564,31 @@ class VtoTalkDevice:
             else None,
             "options": dict(self.entry.options),
         }
+
+
+_VERDICT_PL = {
+    "no data": "brak danych",
+    "card error": "błąd karty",
+    "browser sent no audio (microphone/AudioContext did not start)": "przeglądarka nie wysłała dźwięku (mikrofon/AudioContext nie ruszył)",
+    "microphone gave pure silence": "mikrofon dawał samą ciszę",
+    "audio did not reach Home Assistant": "dźwięk nie dotarł do Home Assistanta",
+    "nothing was sent to the door": "nic nie poszło do domofonu",
+    "very quiet": "bardzo cicho",
+}
+
+
+def _rms(pcm_le: bytes) -> float:
+    """RMS of 16-bit LE PCM as a 0..1 fraction (sampled, cheap)."""
+    if len(pcm_le) < 2:
+        return 0.0
+    step = max(2, (len(pcm_le) // 4000) & ~1)
+    total = 0
+    count = 0
+    for i in range(0, len(pcm_le) - 1, step):
+        v = int.from_bytes(pcm_le[i : i + 2], "little", signed=True)
+        total += v * v
+        count += 1
+    return round((total / count) ** 0.5 / 32768, 4)
 
 
 def _friendly(err: Exception) -> str:

@@ -98,6 +98,12 @@
       "sub_stream_audio": {
         "name": "Sub stream sound"
       },
+      "talk_report": {
+        "name": "Card report: talking"
+      },
+      "preview_report": {
+        "name": "Card report: preview"
+      },
       "codec_reverts": {
         "name": "Codec reverts"
       }

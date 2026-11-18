@@ -119,6 +119,23 @@ Dźwięk w podglądzie: domyślnie podstrumień VTO ma dźwięk wyłączony albo
 podstrumieniowi dźwięk **włączony, G.711A 8 kHz** (opcja „Dźwięk podstrumienia
 też w G.711A”, domyślnie włączona). Dźwięk włączasz przyciskiem 🔊 na karcie.
 
+**Dźwięk podglądu poza domem (iPad / Safari):** gdy WebRTC nie może się połączyć
+(np. przez internet, z innej sieci), karta WebRTC przechodzi na MSE. go2rtc
+pakuje wtedy dźwięk G.711 w FLAC, którego Safari w MSE nie odtwarza: obraz jest,
+dźwięku nie ma (sprawdzone testem `safari-mse`). Rozwiązanie: w `go2rtc.yaml`
+(ten sam folder co `configuration.yaml`) zdefiniuj strumień, który ma dźwięk
+także w AAC:
+
+```yaml
+streams:
+  domofon_sub:
+    - rtsp://admin:HASLO@192.168.1.108:554/cam/realmonitor?channel=1&subtype=1#backchannel=0
+    - ffmpeg:domofon_sub#audio=aac
+```
+
+i w karcie użyj `url: domofon_sub`. WebRTC dalej dostaje G.711, MSE (Safari) –
+AAC. Po zmianie zrestartuj HA (albo dodatek go2rtc).
+
 `#backchannel=0` jest ważne: go2rtc nie zajmie wtedy kanału mówienia, z którego
 korzysta przycisk **Mów**. Zamiast pełnego adresu możesz też podać nazwę
 strumienia z `go2rtc.yaml` (np. `url: domofon_sub`).
@@ -130,6 +147,18 @@ przycisk **▶ Odsłuchaj, co poszło do furtki**: odtwarza dokładnie ten dźwi
 który integracja wysłała do domofonu. Słychać siebie wyraźnie = po stronie HA
 wszystko gra. Jeśli głośność jest bliska 0%, mikrofon iPada dawał ciszę
 (uprawnienia aplikacji HA do mikrofonu albo spróbuj w Safari).
+
+### Czujniki do szukania problemów
+
+* **Raport z karty: mówienie** – po każdym mówieniu z karty: `OK: 5.2 s, max 30%`
+  albo gdzie dźwięk zginął (`mikrofon dawał samą ciszę`, `dźwięk nie dotarł do
+  Home Assistanta`, …). W atrybutach: co widziała przeglądarka (mikrofon,
+  AudioContext, liczba ramek) i co dostał HA (sekundy, poziom, pakiety).
+* **Raport z karty: podgląd** – po stuknięciu 🔊: tryb odtwarzacza (RTC/MSE),
+  czy jest ścieżka dźwięku, czy wideo jest wyciszone.
+* **Dźwięk podstrumienia (podgląd)** – co domofon naprawdę wysyła w subtype=1.
+
+Wszystko to jest też w diagnostyce urządzenia (⋮ → Pobierz diagnostykę).
 
 ### Opcja: przed mówieniem zakończ dzwonienie
 

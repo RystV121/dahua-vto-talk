@@ -98,6 +98,12 @@
       "sub_stream_audio": {
         "name": "Dźwięk podstrumienia (podgląd)"
       },
+      "talk_report": {
+        "name": "Raport z karty: mówienie"
+      },
+      "preview_report": {
+        "name": "Raport z karty: podgląd"
+      },
       "codec_reverts": {
         "name": "Powroty kodeka"
       }

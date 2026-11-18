@@ -31,6 +31,7 @@ def async_register_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_list)
     websocket_api.async_register_command(hass, ws_talk)
     websocket_api.async_register_command(hass, ws_status)
+    websocket_api.async_register_command(hass, ws_client_report)
 
 
 def _device(hass: HomeAssistant, entry_id: str | None):
@@ -138,3 +139,22 @@ def ws_talk(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg
 
     connection.subscriptions[msg_id] = unsubscribe
     connection.send_result(msg_id)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/client_report",
+        vol.Optional("entry_id"): str,
+        vol.Required("kind"): vol.In(["talk", "preview"]),
+        vol.Required("data"): dict,
+    }
+)
+@callback
+def ws_client_report(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
+    """What the card saw in the browser (mic, audio context, preview player)."""
+    device = _device(hass, msg.get("entry_id"))
+    if device is None:
+        connection.send_error(msg["id"], "not_found", "Dahua VTO Talk is not set up")
+        return
+    device.store_client_report(msg["kind"], msg["data"])
+    connection.send_result(msg["id"])

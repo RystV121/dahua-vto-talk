@@ -23,6 +23,8 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities: AddE
             BackchannelSensor(device),
             CodecRevertsSensor(device),
             SubStreamAudioSensor(device),
+            TalkReportSensor(device),
+            PreviewReportSensor(device),
         ]
     )
 
@@ -107,3 +109,46 @@ class SubStreamAudioSensor(VtoTalkEntity, SensorEntity):
     @property
     def native_value(self) -> str | None:
         return self.device.sub_stream_audio
+
+
+class TalkReportSensor(VtoTalkEntity, SensorEntity):
+    """Where the voice of the last card session got (browser -> HA -> door)."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:microphone-question"
+
+    def __init__(self, device: VtoTalkDevice) -> None:
+        super().__init__(device, "talk_report")
+
+    @property
+    def native_value(self) -> str:
+        return self.device.talk_verdict()
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {
+            "browser": self.device.client_reports.get("talk"),
+            "home_assistant": self.device.last_talk_server,
+        }
+
+
+class PreviewReportSensor(VtoTalkEntity, SensorEntity):
+    """What the card's preview player said after tapping the speaker button."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:video-check"
+
+    def __init__(self, device: VtoTalkDevice) -> None:
+        super().__init__(device, "preview_report")
+
+    @property
+    def native_value(self) -> str | None:
+        r = self.device.client_reports.get("preview")
+        if r is None:
+            return None
+        track = {True: "yes", False: "no", None: "?"}.get(r.get("audio_track"), "?")
+        return f"{r.get('player') or r.get('mode')} • audio: {track} • muted: {'yes' if r.get('muted') else 'no'}"[:250]
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return self.device.client_reports.get("preview") or {}

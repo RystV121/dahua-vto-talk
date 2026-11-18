@@ -43,7 +43,25 @@ VARIANTS = {
     "l16": (L16, "webrtc,mse,hls,mjpeg"),
     "pcma-webrtc": (PCMA, "webrtc"),
     "l16-webrtc": (L16, "webrtc"),
+    # iPad away from home: WebRTC does not connect, the player falls back to
+    # MSE, and Safari's MSE cannot play FLAC (go2rtc's wrapper for PCMA)
+    "safari-mse": (PCMA, "mse"),
+    # fix: a go2rtc stream that also offers AAC (ffmpeg) next to PCMA
+    "safari-mse-aac": ("domofon_sub", "mse"),
+    # the same fixed stream must still give WebRTC players their PCMA sound
+    "fixed-webrtc": ("domofon_sub", "webrtc"),
 }
+
+# pretend to be Safari on the "safari-*" views: no FLAC in MediaSource
+SAFARI_LIKE = """
+if (location.pathname.includes('safari')) {
+  for (const MS of [window.MediaSource, window.ManagedMediaSource]) {
+    if (!MS) continue;
+    const orig = MS.isTypeSupported.bind(MS);
+    MS.isTypeSupported = (t) => (/flac/i.test(t) ? false : orig(t));
+  }
+}
+"""
 
 
 def dashboard() -> str:
@@ -156,6 +174,8 @@ MEASURE = """
 
 async def check(cdp: Cdp, name: str) -> dict:
     await cdp.call("Page.navigate", url=f"{HA}/lovelace/{name}")
+    await asyncio.sleep(1)
+    await cdp.call("Page.reload")  # a fresh document, so the Safari-like override applies
     for _ in range(60):
         await asyncio.sleep(0.5)
         try:
@@ -213,6 +233,7 @@ async def run() -> int:
                 cdp = Cdp(ws)
                 await cdp.call("Runtime.enable")
                 await cdp.call("Page.enable")
+                await cdp.call("Page.addScriptToEvaluateOnNewDocument", source=SAFARI_LIKE)
                 await cdp.call("Page.navigate", url=f"{HA}/auth/authorize?response_type=code&client_id={HA}/")
                 await asyncio.sleep(2)
                 await cdp.js(f"localStorage.setItem('hassTokens', {json.dumps(json.dumps(tokens))}); true")

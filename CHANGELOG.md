@@ -1,5 +1,14 @@
 # Zmiany
 
+## 0.1.7
+- Mówienie na iOS: po otwarciu mikrofonu karta tworzy świeży AudioContext
+  (WebKit potrafi podawać ciszę z kontekstu utworzonego wcześniej), a gdy przez
+  2 s przychodzą same zera, sama odbudowuje przechwytywanie dźwięku.
+- Czujniki „Raport z karty: mówienie” i „Raport z karty: podgląd”: gdzie ginie
+  dźwięk (przeglądarka → HA → domofon), z atrybutami do diagnostyki.
+- README: dźwięk podglądu w Safari poza domem (MSE nie odtwarza FLAC) –
+  strumień go2rtc z dodatkowym AAC. Sprawdzone w przeglądarce (symulacja Safari).
+
 ## 0.1.6
 - Po stuknięciu 🔊 karta pokazuje diagnostykę dźwięku podglądu: czy jest
   ścieżka dźwięku, czy wideo jest wyciszone, głośność, tryb (WebRTC/MSE)

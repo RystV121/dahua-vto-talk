@@ -75,6 +75,8 @@ console.log("worklet resampler: ok");
   let workletNode = null;
   let tracksStopped = 0;
   const services = [];
+  const reports = [];
+  let contexts = 0;
 
   class FakeNode {
     constructor(ctx, name, opts) { nodeOpts = opts; this.port = {}; workletNode = this; }
@@ -83,9 +85,9 @@ console.log("worklet resampler: ok");
   window.AudioWorkletNode = FakeNode;
   global.AudioWorkletNode = FakeNode;
   window.AudioContext = class {
-    constructor() { this.sampleRate = 48000; this.audioWorklet = { addModule: async () => {} }; }
-    resume() { return Promise.resolve(); }
-    close() { return Promise.resolve(); }
+    constructor() { contexts += 1; this.state = "suspended"; this.sampleRate = 48000; this.audioWorklet = { addModule: async () => {} }; }
+    resume() { this.state = "running"; return Promise.resolve(); }
+    close() { this.state = "closed"; return Promise.resolve(); }
     createMediaStreamSource() { return { connect: () => {} }; }
   };
   window.URL.createObjectURL = () => "blob:x";
@@ -113,6 +115,7 @@ console.log("worklet resampler: ok");
       subscribeMessage: async (cb, msg) => { subs.push({ cb, msg }); return () => { unsubscribed++; }; },
     },
     callService: async (d, s, data) => services.push([d, s, data]),
+    callWS: async (m) => { reports.push(m); },
   };
   await new Promise((r) => setTimeout(r, 10));
   const root = card.shadowRoot;
@@ -144,8 +147,18 @@ console.log("worklet resampler: ok");
   await subs[0].cb({ event: "stats", packets_sent: 7, buffered_ms: 20 });
   assert(root.getElementById("stxt").textContent.includes("pakiety: 7"));
 
+  // iOS: a fresh AudioContext is made after the microphone opened
+  assert.strictEqual(contexts, 2, "early (unlock) context + fresh context after getUserMedia");
+
   talk.click(); // stop
   await new Promise((r) => setTimeout(r, 10));
+  // the card tells HA what it saw: frames, level, audio context
+  const rep = reports.find((r) => r.type === "dahua_vto_talk/client_report" && r.kind === "talk");
+  assert(rep, "talk report sent");
+  assert.strictEqual(rep.data.frames_sent, 1);
+  assert.strictEqual(rep.data.max_peak, 0.03);
+  assert.strictEqual(rep.data.ctx_rate, 48000);
+  assert.strictEqual(rep.data.fresh_context, true);
   assert.strictEqual(unsubscribed, 1);
   assert.strictEqual(tracksStopped, 1);
   assert(talk.textContent.includes("Mów"));

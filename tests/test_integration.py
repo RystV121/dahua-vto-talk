@@ -298,6 +298,35 @@ async def test_websocket_talk_end_to_end(hass: HomeAssistant, vto: FakeVto, hass
     samples = [int.from_bytes(frames[i : i + 2], "little", signed=True) for i in range(0, len(frames), 2)]
     assert abs(dominant_frequency(samples[2000:10000]) - 600) <= 10
 
+    # HA's own view of the session, and the card's report, end up in sensors
+    server = hass.states.get(entity(hass, "sensor", "talk_report")).attributes["home_assistant"]
+    assert server["received_seconds"] == 2.0 and server["packets_sent"] > 0 and server["peak"] > 0.3
+    await client.send_json(
+        {"id": 10, "type": f"{DOMAIN}/client_report", "kind": "talk",
+         "data": {"frames_sent": 100, "max_peak": 0.37, "seconds": 2.0, "ctx_rate": 48000, "worklet": True}}
+    )
+    assert (await client.receive_json())["success"]
+    await hass.async_block_till_done()
+    state = hass.states.get(entity(hass, "sensor", "talk_report"))
+    assert state.state.startswith("OK: 2.0 s"), state.state
+    assert state.attributes["browser"]["ctx_rate"] == 48000
+
+    # the card says the mic gave pure silence -> the sensor says so
+    await client.send_json(
+        {"id": 11, "type": f"{DOMAIN}/client_report", "kind": "talk", "data": {"frames_sent": 250, "max_peak": 0}}
+    )
+    assert (await client.receive_json())["success"]
+    await hass.async_block_till_done()
+    assert hass.states.get(entity(hass, "sensor", "talk_report")).state == "microphone gave pure silence"
+
+    await client.send_json(
+        {"id": 12, "type": f"{DOMAIN}/client_report", "kind": "preview",
+         "data": {"player": "MSE", "audio_track": False, "muted": False}}
+    )
+    assert (await client.receive_json())["success"]
+    await hass.async_block_till_done()
+    assert hass.states.get(entity(hass, "sensor", "preview_report")).state == "MSE • audio: no • muted: no"
+
 
 async def test_websocket_talk_error_event(hass: HomeAssistant, vto: FakeVto, hass_ws_client) -> None:
     await setup_entry(hass, vto)

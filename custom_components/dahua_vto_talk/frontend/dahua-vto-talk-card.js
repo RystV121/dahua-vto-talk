@@ -18,7 +18,7 @@
  * entry_id: ...                           # only with several door stations
  */
 
-const CARD_VERSION = "0.1.6";
+const CARD_VERSION = "0.1.7";
 
 const WORKLET_SOURCE = `
 class VtoPcmSender extends AudioWorkletProcessor {
@@ -439,6 +439,15 @@ class DahuaVtoTalkCard extends HTMLElement {
       v.paused ? t.diag_paused : t.diag_playing,
     ];
     this._status = `🔊 ${parts.join(" • ")}`;
+    const wc = this.shadowRoot.querySelector("webrtc-camera");
+    const label = wc && wc.shadowRoot && wc.shadowRoot.querySelector(".mode");
+    this._report("preview", {
+      card: CARD_VERSION, ua: navigator.userAgent, page: typeof location !== "undefined" ? location.hostname : null,
+      audio_track: track, muted: v.muted, volume: v.volume, mode, paused: v.paused,
+      player: label ? label.textContent : null, ready_state: v.readyState,
+      decoded_audio_bytes: typeof v.webkitAudioDecodedByteCount === "number" ? v.webkitAudioDecodedByteCount : null,
+      camera: this._config.camera_card ? "camera_card" : "camera_entity",
+    });
     this._render();
   }
 
@@ -479,17 +488,20 @@ class DahuaVtoTalkCard extends HTMLElement {
     this._sentFrames = 0;
     this._sentSamples = 0;
     this._maxPeak = 0;
+    this._zeroFrames = 0;
+    this._rebuilt = false;
+    this._diag = { card: CARD_VERSION, ua: navigator.userAgent, page: typeof location !== "undefined" ? location.hostname : null, started: new Date().toISOString() };
     this._state = "connecting";
     this._render();
     if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       this._fail(t.no_https);
       return;
     }
-    // AudioContext and getUserMedia must start inside the tap (iOS)
+    // an AudioContext started inside the tap unlocks audio on iOS
     const Ctx = window.AudioContext || window.webkitAudioContext;
-    const ctx = new Ctx();
-    this._ctx = ctx;
-    ctx.resume().catch(() => {});
+    const early = new Ctx();
+    early.resume().catch(() => {});
+    this._ctx = early;
     // the tap also unlocks the door audio (a user gesture, so iOS allows it)
     this._setListening(true);
     let stream;
@@ -504,6 +516,30 @@ class DahuaVtoTalkCard extends HTMLElement {
     }
     if (this._state !== "connecting") { stream.getTracks().forEach((tr) => tr.stop()); return; }
     this._stream = stream;
+    const track = stream.getAudioTracks ? stream.getAudioTracks()[0] : null;
+    if (track) {
+      this._diag.track = {
+        label: track.label, muted: track.muted, enabled: track.enabled, ready: track.readyState,
+        settings: track.getSettings ? track.getSettings() : null,
+      };
+    }
+    // iOS/WebKit: a context made before the microphone was opened can hand the
+    // worklet pure silence. Make a fresh one now (allowed while capturing).
+    try {
+      const fresh = new Ctx();
+      await Promise.race([fresh.resume(), new Promise((r) => setTimeout(r, 800))]);
+      if (fresh.state === "running") {
+        early.close().catch(() => {});
+        this._ctx = fresh;
+        this._diag.fresh_context = true;
+      } else {
+        this._diag.fresh_context = `not running (${fresh.state})`;
+        fresh.close().catch(() => {});
+      }
+    } catch (e) {
+      this._diag.fresh_context = `error: ${e && e.message}`;
+    }
+    if (this._state !== "connecting") return;
     try {
       this._unsub = await this._hass.connection.subscribeMessage(
         (msg) => this._onEvent(msg),
@@ -542,6 +578,12 @@ class DahuaVtoTalkCard extends HTMLElement {
 
   async _startCapture(rate) {
     const ctx = this._ctx;
+    if (ctx.state !== "running") {
+      await Promise.race([ctx.resume().catch(() => {}), new Promise((r) => setTimeout(r, 800))]);
+    }
+    Object.assign(this._diag || {}, {
+      ctx_rate: ctx.sampleRate, ctx_state: ctx.state, worklet: !!ctx.audioWorklet, target_rate: rate,
+    });
     const source = ctx.createMediaStreamSource(this._stream);
     const send = (buf, peak) => {
       this._level = peak;
@@ -553,7 +595,12 @@ class DahuaVtoTalkCard extends HTMLElement {
       sock.send(bytes);
       this._sentSamples += buf.byteLength / 2;
       this._sentRate = rate;
+      this._sentFrames += 1;
+      if (peak === 0) this._zeroFrames += 1;
       if (peak > this._maxPeak) this._maxPeak = peak;
+      // 2 s of exact digital zeros: the capture chain is broken (a real mic
+      // always has some noise). Rebuild it once with a fresh AudioContext.
+      if (!this._rebuilt && this._sentFrames === 100 && this._maxPeak === 0) this._rebuildCapture(rate);
       if (!this._meterTick || performance.now() - this._meterTick > 100) {
         this._meterTick = performance.now();
         this._render();
@@ -604,12 +651,50 @@ class DahuaVtoTalkCard extends HTMLElement {
     }
   }
 
+  async _rebuildCapture(rate) {
+    this._rebuilt = true;
+    if (this._diag) this._diag.rebuilt_after_silence = true;
+    try {
+      if (this._node) { this._node.disconnect(); if (this._node.port) this._node.port.onmessage = null; }
+      if (this._ctx) this._ctx.close().catch(() => {});
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      this._ctx = new Ctx();
+      await this._startCapture(rate);
+    } catch (e) {
+      if (this._diag) this._diag.rebuild_error = String(e && e.message || e);
+    }
+  }
+
+  _report(kind, data) {
+    try {
+      const msg = Object.assign({ type: "dahua_vto_talk/client_report", kind, data },
+        this._config && this._config.entry_id ? { entry_id: this._config.entry_id } : {});
+      Promise.resolve(this._hass.callWS(msg)).catch(() => {});
+    } catch (e) { /* reporting must never break the card */ }
+  }
+
   _fail(message) {
     this._error = message;
     this._stopTalk(true);
   }
 
   _stopTalk(keepMessage) {
+    if (this._diag) {
+      const tr = this._stream && this._stream.getAudioTracks ? this._stream.getAudioTracks()[0] : null;
+      const report = Object.assign({}, this._diag, {
+        frames_sent: this._sentFrames || 0,
+        zero_frames: this._zeroFrames || 0,
+        seconds: Math.round(((this._sentSamples || 0) / (this._sentRate || 8000)) * 10) / 10,
+        max_peak: Math.round((this._maxPeak || 0) * 1000) / 1000,
+        codec: this._codec || null,
+        ctx_state_end: this._ctx ? this._ctx.state : null,
+        track_end: tr ? { muted: tr.muted, enabled: tr.enabled, ready: tr.readyState } : null,
+        error: this._error || null,
+        ended: new Date().toISOString(),
+      });
+      this._diag = null;
+      this._report("talk", report);
+    }
     if (this._unsub) {
       const u = this._unsub;
       this._unsub = null;

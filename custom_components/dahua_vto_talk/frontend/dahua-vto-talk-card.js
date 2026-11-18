@@ -9,13 +9,16 @@
  *
  * type: custom:dahua-vto-talk-card
  * camera_entity: camera.domofon_main      # optional
+ * camera_card:                            # optional, any card instead of the
+ *   type: custom:webrtc-camera            # built-in camera view (e.g. a light
+ *   url: domofon_sub                      # sub stream via go2rtc / WebRTC)
  * open_door_entity: button.domofon_open_door   # optional
  * mode: toggle | hold                     # default toggle
  * mute_while_talking: false               # mute door audio while you talk
  * entry_id: ...                           # only with several door stations
  */
 
-const CARD_VERSION = "0.1.1";
+const CARD_VERSION = "0.1.2";
 
 const WORKLET_SOURCE = `
 class VtoPcmSender extends AudioWorkletProcessor {
@@ -109,6 +112,7 @@ const TEXT = {
     not_setup: "Integracja Dahua VTO Talk nie jest skonfigurowana.",
     packets: "pakiety",
     ended: "Połączenie zakończone",
+    no_entity: "Nie ma takiej encji kamery",
   },
   en: {
     talk: "Talk",
@@ -124,6 +128,7 @@ const TEXT = {
     not_setup: "Dahua VTO Talk is not set up.",
     packets: "packets",
     ended: "Call ended",
+    no_entity: "Camera entity not found",
   },
 };
 
@@ -161,7 +166,7 @@ class DahuaVtoTalkCard extends HTMLElement {
     if (!this._built) this._build();
     if (this._camera) {
       this._camera.hass = hass;
-      if (this._config.camera_entity && "stateObj" in this._camera) {
+      if (this._config.camera_entity && !this._config.camera_card && "stateObj" in this._camera) {
         const obj = hass.states[this._config.camera_entity];
         if (obj && this._camera.stateObj !== obj) this._camera.stateObj = obj;
       }
@@ -169,8 +174,12 @@ class DahuaVtoTalkCard extends HTMLElement {
     if (first) this._render();
   }
 
+  get _hasCam() {
+    return !!(this._config && (this._config.camera_entity || this._config.camera_card));
+  }
+
   getCardSize() {
-    return this._config && this._config.camera_entity ? 6 : 2;
+    return this._hasCam ? 6 : 2;
   }
 
   get _t() {
@@ -192,6 +201,8 @@ class DahuaVtoTalkCard extends HTMLElement {
       <style>
         ha-card { overflow: hidden; }
         .cam { position: relative; background: #000; min-height: 40px; }
+        .cam .msg { color: #fff; padding: 16px; font-size: 14px; }
+        .cam ha-card { border-radius: 0; border: 0; box-shadow: none; }
         .bar { display: flex; gap: 8px; padding: 12px; align-items: center; flex-wrap: wrap; }
         button.main {
           flex: 1 1 140px; min-height: 56px; border: 0; border-radius: 28px; font-size: 18px; font-weight: 600;
@@ -215,10 +226,10 @@ class DahuaVtoTalkCard extends HTMLElement {
         .meter > div { height: 100%; width: 0; background: var(--success-color, #2e7d32); transition: width .1s; }
       </style>
       <ha-card ${this._config.title ? `header="${this._config.title}"` : ""}>
-        ${this._config.camera_entity ? '<div class="cam" id="cam"></div>' : ""}
+        ${this._hasCam ? '<div class="cam" id="cam"></div>' : ""}
         <div class="bar">
           <button class="main" id="talk">🎤 ${this._config.mode === "hold" ? t.hold : t.talk}</button>
-          ${this._config.camera_entity ? `<button class="listen" id="listen" title="${t.listen}">🔇</button>` : ""}
+          ${this._hasCam ? `<button class="listen" id="listen" title="${t.listen}">🔇</button>` : ""}
           ${this._config.open_door_entity ? `<button class="open" id="open">🔓 ${t.open}</button>` : ""}
         </div>
         <div class="status" id="status"><div class="meter"><div id="lvl"></div></div><span id="stxt">${t.idle}</span></div>
@@ -244,7 +255,26 @@ class DahuaVtoTalkCard extends HTMLElement {
   async _mountCamera() {
     const entity = this._config.camera_entity;
     const holder = this.shadowRoot.getElementById("cam");
-    if (!entity || !holder) return;
+    if (!holder) return;
+    if (this._config.camera_card) {
+      // a user-chosen card (e.g. custom:webrtc-camera with a light sub stream)
+      try {
+        const helpers = await window.loadCardHelpers();
+        const el = await helpers.createCardElement(this._config.camera_card);
+        el.hass = this._hass;
+        holder.innerHTML = "";
+        holder.appendChild(el);
+        this._camera = el;
+      } catch (e) {
+        holder.innerHTML = `<div class="msg">camera_card: ${String(e && e.message || e)}</div>`;
+      }
+      return;
+    }
+    if (!entity) return;
+    if (!this._hass.states[entity]) {
+      holder.innerHTML = `<div class="msg">${this._t.no_entity}: ${entity}</div>`;
+      return;
+    }
     try {
       // make sure the frontend has loaded its camera components
       if (!customElements.get("ha-camera-stream") && window.loadCardHelpers) {

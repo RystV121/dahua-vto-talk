@@ -96,6 +96,26 @@ się sama, nie trzeba dodawać jej w „Zasobach”.
 Na karcie: obraz z furtki z dźwiękiem, duży przycisk **🎤 Mów**, **🔓 Otwórz furtkę**,
 pasek poziomu mikrofonu i status (`Mówisz • PCMA/8000 • pakiety: …`).
 
+### Lżejszy, płynny podgląd (WebRTC + podstrumień)
+
+Wbudowany podgląd HA bywa ciężki (strumień główny, często H.265) i na iPadzie
+potrafi pokazywać tylko stopklatkę. Lepiej działa podstrumień (subtype=1,
+H.264, mała rozdzielczość) puszczony przez go2rtc / WebRTC. Mając zainstalowaną
+integrację **WebRTC Camera** (AlexxIT), wstaw ją do środka karty:
+
+```yaml
+type: custom:dahua-vto-talk-card
+camera_card:
+  type: custom:webrtc-camera
+  url: rtsp://admin:HASLO@192.168.1.108:554/cam/realmonitor?channel=1&subtype=1#backchannel=0
+  muted: true
+open_door_entity: button.domofon_open_door
+```
+
+`#backchannel=0` jest ważne: go2rtc nie zajmie wtedy kanału mówienia, z którego
+korzysta przycisk **Mów**. Zamiast pełnego adresu możesz też podać nazwę
+strumienia z `go2rtc.yaml` (np. `url: domofon_sub`).
+
 ### Opcja: przed mówieniem zakończ dzwonienie
 
 Ustawienia → Dahua VTO Talk → Konfiguruj → **„Przycisk kończący połączenie VTO”**

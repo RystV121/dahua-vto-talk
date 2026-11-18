@@ -1,0 +1,20 @@
+const { JSDOM } = require("jsdom");
+const fs = require("fs");
+const dom = new JSDOM("<!doctype html><body></body>", { runScripts: "outside-only" });
+const w = dom.window;
+let created = null;
+w.loadCardHelpers = async () => ({ createCardElement: async (c) => { created = c; const e = w.document.createElement("div"); e.className = "inner"; return e; } });
+w.eval(fs.readFileSync("" + require("path").join(__dirname, "../../custom_components") + "/dahua_vto_talk/frontend/dahua-vto-talk-card.js", "utf8"));
+(async () => {
+  const hass = { language: "pl", states: {}, connection: {} };
+  const c = w.document.createElement("dahua-vto-talk-card");
+  c.setConfig({ camera_card: { type: "custom:webrtc-camera", url: "x" } });
+  w.document.body.appendChild(c); c.hass = hass;
+  await new Promise((r) => setTimeout(r, 50));
+  if (!created || created.url !== "x" || !c.shadowRoot.querySelector(".inner") || !c.shadowRoot.getElementById("listen")) throw new Error("camera_card fail");
+  const d = w.document.createElement("dahua-vto-talk-card");
+  d.setConfig({ camera_entity: "camera.nope" }); w.document.body.appendChild(d); d.hass = hass;
+  await new Promise((r) => setTimeout(r, 50));
+  if (!d.shadowRoot.querySelector(".msg").textContent.includes("camera.nope")) throw new Error("missing msg");
+  console.log("camera_card + missing entity: ok");
+})().catch((e) => { console.error(e); process.exit(1); });

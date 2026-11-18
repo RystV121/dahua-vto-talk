@@ -1,5 +1,10 @@
 # Zmiany
 
+## 0.1.9
+- Suwak „Wzmocnienie mówienia” (0–24 dB, domyślnie 0): głośniej odtwarza Twój
+  głos na domofonie, z miękkim ogranicznikiem (bez charczenia). Mowa z iPada
+  jest ok. 15–20 dB cichsza niż ton testowy. Można zmieniać w trakcie rozmowy.
+
 ## 0.1.8
 - Podgląd z WebRTC Camera sam przechodzi na WebRTC (RTC) zamiast MSE: Safari na
   iPadzie (i Chrome) ukrywa adres urządzenia przed WebRTC, dopóki strona nie

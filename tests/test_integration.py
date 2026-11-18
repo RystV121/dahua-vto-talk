@@ -301,6 +301,11 @@ async def test_websocket_talk_end_to_end(hass: HomeAssistant, vto: FakeVto, hass
     # HA's own view of the session, and the card's report, end up in sensors
     server = hass.states.get(entity(hass, "sensor", "talk_report")).attributes["home_assistant"]
     assert server["received_seconds"] == 2.0 and server["packets_sent"] > 0 and server["peak"] > 0.3
+    assert server["gain_db"] == 0
+    gain = hass.states.get(entity(hass, "number", "talk_gain"))
+    assert gain is not None and float(gain.state) == 0
+    await hass.services.async_call("number", "set_value", {"entity_id": gain.entity_id, "value": 9}, blocking=True)
+    assert hass.config_entries.async_loaded_entries(DOMAIN)[0].runtime_data.talk_gain_db == 9
     await client.send_json(
         {"id": 10, "type": f"{DOMAIN}/client_report", "kind": "talk",
          "data": {"frames_sent": 100, "max_peak": 0.37, "seconds": 2.0, "ctx_rate": 48000, "worklet": True}}

@@ -112,6 +112,11 @@
       "keep_codec": {
         "name": "Pilnuj kodeka G.711A"
       }
+    },
+    "number": {
+      "talk_gain": {
+        "name": "Wzmocnienie mówienia"
+      }
     }
   },
   "services": {

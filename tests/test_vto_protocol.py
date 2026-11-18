@@ -308,3 +308,17 @@ async def test_server_closing_mid_talk_is_reported(vto: FakeVto) -> None:
     assert not session.is_open
     assert reasons and reasons[0] and "closed" in reasons[0]
     await session.close()
+
+
+def test_gain_amplifies_and_limits_softly() -> None:
+    from custom_components.dahua_vto_talk.vto.codecs import apply_gain_pcm16le, tone_pcm16le
+
+    quiet = tone_pcm16le(8000, 0.5, 600, amplitude=0.05, beep_on=1, beep_off=0)
+    loud = apply_gain_pcm16le(quiet, 12)
+    def peak(b):
+        return max(abs(int.from_bytes(b[i : i + 2], "little", signed=True)) for i in range(0, len(b), 2))
+    assert 3.6 < peak(loud) / peak(quiet) < 4.3  # +12 dB is about x4
+    # a full-scale input is bent by the limiter, never wraps around
+    hot = apply_gain_pcm16le(tone_pcm16le(8000, 0.2, 600, amplitude=0.9, beep_on=1, beep_off=0), 24)
+    assert 30000 < peak(hot) <= 32767
+    assert apply_gain_pcm16le(quiet, 0) == quiet

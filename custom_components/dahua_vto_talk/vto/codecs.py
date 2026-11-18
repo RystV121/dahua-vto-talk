@@ -203,3 +203,36 @@ class Encoder:
     def __repr__(self) -> str:
         suffix = " LE" if self.encoding == "L16" and self.l16_little_endian else ""
         return f"{self.encoding}/{self.clock_rate}{suffix}"
+
+
+def apply_gain_pcm16le(pcm_le: bytes, gain_db: float) -> bytes:
+    """Amplify 16-bit LE PCM by ``gain_db`` with a soft limiter.
+
+    Speech from a phone/tablet mic (after its automatic gain control) sits
+    15-20 dB below the test tone, which can be too quiet on a small door
+    speaker outdoors. Above 70 % of full scale the curve bends smoothly
+    (tanh) instead of clipping, so loud syllables do not crackle.
+    """
+    if not gain_db or len(pcm_le) < 2:
+        return pcm_le
+    import math  # noqa: PLC0415
+    from array import array  # noqa: PLC0415
+
+    g = 10 ** (gain_db / 20)
+    samples = array("h")
+    samples.frombytes(pcm_le[: len(pcm_le) - len(pcm_le) % 2])
+    if sys.byteorder != "little":
+        samples.byteswap()
+    knee = 0.7 * 32767
+    room = 32767 - knee
+    out = array("h", bytes(len(samples) * 2))
+    for i, s in enumerate(samples):
+        y = s * g
+        a = abs(y)
+        if a > knee:
+            a = knee + room * math.tanh((a - knee) / room)
+            y = a if y > 0 else -a
+        out[i] = int(y)
+    if sys.byteorder != "little":
+        out.byteswap()
+    return out.tobytes()

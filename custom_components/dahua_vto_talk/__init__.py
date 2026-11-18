@@ -26,7 +26,7 @@ from .websocket import async_register_websocket
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.BUTTON, Platform.SENSOR, Platform.SWITCH]
+PLATFORMS = [Platform.BUTTON, Platform.NUMBER, Platform.SENSOR, Platform.SWITCH]
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 

@@ -112,6 +112,11 @@
       "keep_codec": {
         "name": "Keep G.711A codec"
       }
+    },
+    "number": {
+      "talk_gain": {
+        "name": "Talk gain"
+      }
     }
   },
   "services": {

@@ -6,7 +6,7 @@ import asyncio
 import logging
 import time
 
-from .codecs import Encoder
+from .codecs import Encoder, apply_gain_pcm16le
 from .rtsp import BackchannelSession
 
 _LOGGER = logging.getLogger(__name__)
@@ -42,6 +42,8 @@ class Talker:
         self.received_bytes = 0
         self.peak = 0
         self.max_peak = 0
+        # extra loudness for live speech (dB), set by the device
+        self.gain_db = 0.0
         # copy of what was fed (PCM LE), capped, so the user can hear it back
         self.record = bytearray()
         self.record_limit = encoder.clock_rate * 2 * 60
@@ -55,6 +57,8 @@ class Talker:
         if not pcm_le or self._finishing:
             return
         self.received_bytes += len(pcm_le)
+        if self.gain_db:
+            pcm_le = apply_gain_pcm16le(pcm_le, self.gain_db)
         self._update_peak(pcm_le)
         if len(self.record) < self.record_limit:
             self.record += pcm_le[: self.record_limit - len(self.record)]

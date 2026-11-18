@@ -36,6 +36,7 @@ from .const import (
     DEFAULT_HTTP_PORT,
     DEFAULT_PACKET_BYTES,
     DEFAULT_RTSP_PORT,
+    DEFAULT_TALK_GAIN_DB,
     DEFAULT_WATCHDOG_INTERVAL,
     SIGNAL_UPDATE,
     TALK_CONNECTING,
@@ -130,6 +131,7 @@ class VtoTalkDevice:
             self.password,
         )
         self.keep_codec = True  # the switch entity restores the user's choice
+        self.talk_gain_db = DEFAULT_TALK_GAIN_DB  # the number entity restores it
 
         # state shown by entities
         self.talk_state = TALK_IDLE
@@ -396,6 +398,8 @@ class VtoTalkDevice:
             await session.close()
             raise
         talker = Talker(session, encoder, packet_bytes or self.packet_bytes)
+        if client == "card":
+            talker.gain_db = self.talk_gain_db
         task = self.hass.async_create_background_task(talker.run(), f"{self.host} talk sender")
         return TalkHandle(session, talker, task, client, encoder)
 
@@ -423,6 +427,7 @@ class VtoTalkDevice:
                 "opened": handle.opened.isoformat(),
                 "closed": dt_util.utcnow().isoformat(),
                 "codec": repr(handle.encoder),
+                "gain_db": handle.talker.gain_db,
                 "received_seconds": round(handle.talker.received_bytes / 2 / handle.sample_rate, 1),
                 "peak": self.last_talk_peak,
                 "rms": _rms(record),
@@ -502,6 +507,11 @@ class VtoTalkDevice:
     async def play_media(self, media_content_id: str) -> None:
         pcm = await _decode_media(self.hass, media_content_id)
         await self.play_pcm(pcm, 8000, "media")
+
+    def set_talk_gain(self, gain_db: float) -> None:
+        self.talk_gain_db = float(gain_db)
+        if self._active is not None and self._active.client == "card":
+            self._active.talker.gain_db = self.talk_gain_db
 
     @callback
     def store_client_report(self, kind: str, data: dict[str, Any]) -> None:

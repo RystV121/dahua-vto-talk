@@ -28,6 +28,7 @@ import math
 import os
 import re
 import struct
+import time
 from dataclasses import dataclass, field
 
 from aiohttp import web
@@ -65,6 +66,22 @@ table.Encode[0].MainFormat[1].Audio.Frequency=16000
 class ReceivedTalk:
     payload_type: int
     packets: list[tuple[int, int, int, bytes]] = field(default_factory=list)  # seq, ts, marker, payload
+    arrivals: list[float] = field(default_factory=list)  # time.monotonic() per packet
+
+    def playback_gaps(self, rate: int = 8000, bytes_per_sample: int = 1) -> list[float]:
+        """Silences (s) a real-time speaker would play: when a packet arrives
+        after the previous ones have already finished playing."""
+        gaps: list[float] = []
+        play_end: float | None = None
+        for t, (_s, _ts, _m, payload) in zip(self.arrivals, self.packets):
+            dur = len(payload) / bytes_per_sample / rate
+            if play_end is None or t >= play_end:
+                if play_end is not None and t - play_end > 0.005:
+                    gaps.append(t - play_end)
+                play_end = t + dur
+            else:
+                play_end += dur
+        return gaps
 
 
 class FakeVto:
@@ -193,6 +210,7 @@ class FakeVto:
                     if setups.get(channel) == "trackID=5" and playing and talk is not None:
                         b0, b1, seq, ts, _ssrc = struct.unpack("!BBHII", data[:12])
                         talk.packets.append((seq, ts, b1 >> 7, data[12:]))
+                        talk.arrivals.append(time.monotonic())
                     continue
                 raw = first + await reader.readuntil(b"\r\n\r\n")
                 text = raw.decode()

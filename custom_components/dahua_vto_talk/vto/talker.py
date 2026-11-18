@@ -24,8 +24,9 @@ class Talker:
         session: BackchannelSession,
         encoder: Encoder,
         packet_bytes: int = DEFAULT_PACKET_BYTES,
-        max_buffer_ms: int = 800,
+        max_buffer_ms: int = 1500,
         lead_ms: int = 60,
+        jitter_ms: int = 300,
     ) -> None:
         self.session = session
         self.encoder = encoder
@@ -35,6 +36,12 @@ class Talker:
         self.packet_seconds = self.samples_per_packet / encoder.clock_rate
         self.max_buffer = int(encoder.byte_rate * max_buffer_ms / 1000)
         self.lead = lead_ms / 1000
+        # Live speech over the internet arrives in bursts. Start (and restart
+        # after the buffer ran dry) only once this much audio is waiting, so a
+        # network stall up to about this long does not cut the sound at the door.
+        self.prebuffer = int(encoder.byte_rate * jitter_ms / 1000)
+        self.underruns = 0
+        self.gap_seconds = 0.0
         self._buffer = bytearray()
         self._wake = asyncio.Event()
         self._finishing = False
@@ -89,27 +96,46 @@ class Talker:
     async def run(self) -> None:
         """Send packets until finish() drains the buffer or the session dies."""
         next_send: float | None = None
+        primed = False
+        starved_at: float | None = None
         while True:
             if not self.session.is_open:
                 return
-            if len(self._buffer) < self.packet_bytes:
+            need = self.packet_bytes if (primed or self._finishing) else self.packet_bytes + self.prebuffer
+            if len(self._buffer) < need:
                 if self._finishing:
                     if self._buffer:
-                        pad = self.packet_bytes - len(self._buffer)
-                        self._buffer += self.encoder.silence * (pad // self.encoder.bytes_per_sample)
+                        pad = self.packet_bytes - len(self._buffer) % self.packet_bytes
+                        if pad != self.packet_bytes:
+                            self._buffer += self.encoder.silence * (pad // self.encoder.bytes_per_sample)
                     else:
                         return
                 else:
+                    timeout = 1.0
+                    if primed and next_send is not None:
+                        due = next_send - self.lead - time.monotonic()
+                        if due <= 0:
+                            # the next packet is due and is not there: the
+                            # speaker runs dry. Build a fresh cushion first.
+                            primed = False
+                            self.underruns += 1
+                            starved_at = time.monotonic()
+                        else:
+                            timeout = due
                     self._wake.clear()
                     try:
-                        await asyncio.wait_for(self._wake.wait(), 1.0)
+                        await asyncio.wait_for(self._wake.wait(), timeout)
                     except TimeoutError:
                         pass
                     continue
             now = time.monotonic()
-            if next_send is None or now - next_send > self.packet_seconds:
-                # first packet, or we starved: restart the clock instead of
-                # bursting to "catch up"
+            if not primed:
+                primed = True
+                if starved_at is not None:
+                    self.gap_seconds += now - starved_at
+                    starved_at = None
+                next_send = now
+            elif next_send is None or now - next_send > self.packet_seconds:
                 next_send = now
             delay = next_send - self.lead - now
             if delay > 0:

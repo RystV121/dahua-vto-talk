@@ -82,6 +82,8 @@ class TalkHandle:
             "buffered_ms": self.talker.buffered_ms,
             "dropped_ms": int(self.talker.dropped_bytes / self.encoder.byte_rate * 1000),
             "level": round(self.talker.peak / 32768, 3),
+            "underruns": self.talker.underruns,
+            "gap_ms": int(self.talker.gap_seconds * 1000),
         }
 
 
@@ -433,6 +435,8 @@ class VtoTalkDevice:
                 "rms": _rms(record),
                 "packets_sent": handle.session.packets_sent,
                 "dropped_ms": int(handle.talker.dropped_bytes / handle.encoder.byte_rate * 1000),
+                "underruns": handle.talker.underruns,
+                "gap_ms": int(handle.talker.gap_seconds * 1000),
                 "close_reason": handle.session.close_reason,
             }
             _LOGGER.info("Talk from the card ended: %s", self.last_talk_server)
@@ -546,7 +550,12 @@ class VtoTalkDevice:
             return f"very quiet: max {round(server['peak'] * 100, 1)}%"
         seconds = server["received_seconds"] if server else client.get("seconds")
         peak = server["peak"] if server else client.get("max_peak", 0)
-        return f"OK: {seconds} s, max {round(peak * 100)}%"
+        text = f"OK: {seconds} s, max {round(peak * 100)}%"
+        if server is not None and (server.get("underruns") or server.get("dropped_ms")):
+            text += f", choppy: {server.get('underruns', 0)} gaps"
+            if server.get("dropped_ms"):
+                text += f", {server['dropped_ms']} ms dropped"
+        return text
 
     def diagnostics(self) -> dict[str, Any]:
         return {
@@ -584,6 +593,9 @@ _VERDICT_PL = {
     "audio did not reach Home Assistant": "dźwięk nie dotarł do Home Assistanta",
     "nothing was sent to the door": "nic nie poszło do domofonu",
     "very quiet": "bardzo cicho",
+    "choppy": "przerywany",
+    "gaps": "przerw",
+    "dropped": "odrzucone",
 }
 
 

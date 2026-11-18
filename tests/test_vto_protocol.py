@@ -322,3 +322,58 @@ def test_gain_amplifies_and_limits_softly() -> None:
     hot = apply_gain_pcm16le(tone_pcm16le(8000, 0.2, 600, amplitude=0.9, beep_on=1, beep_off=0), 24)
     assert 30000 < peak(hot) <= 32767
     assert apply_gain_pcm16le(quiet, 0) == quiet
+
+
+async def _bursty_internet_feed(talker: Talker, seconds: float = 6.0) -> None:
+    """20 ms mic frames as they arrive over a mobile / university connection:
+    mostly on time, but every ~1.5 s the network stalls 150-250 ms and then
+    delivers the backlog in a burst."""
+    import random  # noqa: PLC0415
+
+    rnd = random.Random(7)
+    pcm = tone_pcm16le(8000, seconds, 600, beep_on=1, beep_off=0)
+    frame = 320
+    loop = asyncio.get_running_loop()
+    start = loop.time()
+    stall_until = 0.0
+    next_stall = 1.0
+    for n, i in enumerate(range(0, len(pcm), frame)):
+        due = start + (n + 1) * 0.02  # when the mic produced this frame
+        now = loop.time()
+        if now - start >= next_stall and stall_until < now:
+            stall_until = now + rnd.uniform(0.15, 0.25)
+            next_stall += rnd.uniform(1.2, 1.8)
+        wait = max(due, stall_until) - now
+        if wait > 0:
+            await asyncio.sleep(wait)
+        talker.feed_pcm(pcm[i : i + frame])
+    talker.finish()
+
+
+@pytest.mark.parametrize("jitter_ms", [0, 300])
+async def test_bursty_network_plays_without_gaps(vto: FakeVto, jitter_ms: int) -> None:
+    """Speech over a jittery connection must not come out chopped at the door.
+
+    jitter_ms=0 is the old behaviour: it must show gaps, which proves the
+    gap measurement works; 300 (the default) must play without any.
+    """
+    vto.set_codec("G.711A", 8000)
+    session = BackchannelSession("127.0.0.1", vto.rtsp_port, "admin", "T3st@pass")
+    back = await session.open()
+    talker = Talker(session, Encoder(back.encoding, back.clock_rate), jitter_ms=jitter_ms)  # 1024 B packets
+    runner = asyncio.create_task(talker.run())
+    await _bursty_internet_feed(talker)
+    await asyncio.wait_for(runner, 10)
+    await asyncio.sleep(0.3)
+    await session.close()
+    talk = vto.talks[-1]
+    gaps = talk.playback_gaps()
+    heard = vto.heard_pcm()
+    print(f"gaps: {len(gaps)} total {sum(gaps)*1000:.0f} ms, underruns {talker.underruns} ({talker.gap_seconds*1000:.0f} ms waiting), dropped {talker.dropped_bytes}")
+    assert len(heard) >= 8000 * 5.8, "all speech must arrive"
+    assert talker.dropped_bytes == 0
+    if jitter_ms == 0:
+        assert gaps, "without a jitter buffer this network must cause audible gaps"
+        return
+    assert len(gaps) == 0, f"speaker would go silent {len(gaps)} times: {[round(g * 1000) for g in gaps]} ms"
+    assert talker.underruns == 0

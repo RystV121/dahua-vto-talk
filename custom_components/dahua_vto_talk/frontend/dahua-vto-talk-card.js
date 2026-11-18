@@ -19,7 +19,7 @@
  * entry_id: ...                           # only with several door stations
  */
 
-const CARD_VERSION = "0.1.9";
+const CARD_VERSION = "0.1.10";
 
 const WORKLET_SOURCE = `
 class VtoPcmSender extends AudioWorkletProcessor {
@@ -112,6 +112,7 @@ const TEXT = {
     no_https: "Mikrofon działa tylko przez HTTPS (lub localhost).",
     not_setup: "Integracja Dahua VTO Talk nie jest skonfigurowana.",
     packets: "pakiety",
+    gaps: "przerwy",
     ended: "Połączenie zakończone",
     no_entity: "Nie ma takiej encji kamery",
     sent: "Wysłano",
@@ -142,6 +143,7 @@ const TEXT = {
     no_https: "The microphone only works over HTTPS (or localhost).",
     not_setup: "Dahua VTO Talk is not set up.",
     packets: "packets",
+    gaps: "gaps",
     ended: "Call ended",
     no_entity: "Camera entity not found",
     sent: "Sent",
@@ -393,7 +395,10 @@ class DahuaVtoTalkCard extends HTMLElement {
     else if (this._state === "connecting") text = t.connecting;
     else if (this._state === "talking") {
       text = `${t.talking}${this._codec ? " • " + this._codec : ""}`;
-      if (this._stats) text += ` • ${t.packets}: ${this._stats.packets_sent}`;
+      if (this._stats) {
+        text += ` • ${t.packets}: ${this._stats.packets_sent}`;
+        if (this._stats.underruns) text += ` • ${t.gaps}: ${this._stats.underruns}`;
+      }
     } else if (this._status) text = this._status;
     stxt.textContent = text;
     status.classList.toggle("err", !!this._error);

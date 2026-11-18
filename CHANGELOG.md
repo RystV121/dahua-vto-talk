@@ -1,5 +1,13 @@
 # Zmiany
 
+## 0.1.10
+- Mówienie przez internet nie jest już poszarpane: bufor 300 ms zbiera dźwięk
+  przed startem i po każdym przestoju sieci, zamiast wysyłać go co do ramki.
+  Test z typowym „szarpanym” łączem (przestoje 150–250 ms): wcześniej 2 przerwy
+  na głośniku (196 ms), teraz 0. Koszt: ok. 0,3 s opóźnienia.
+- Licznik przerw: na karcie w trakcie mówienia („przerwy: N”) i w czujniku
+  „Raport z karty: mówienie” (`underruns`, `gap_ms`).
+
 ## 0.1.9
 - Suwak „Wzmocnienie mówienia” (0–24 dB, domyślnie 0): głośniej odtwarza Twój
   głos na domofonie, z miękkim ogranicznikiem (bez charczenia). Mowa z iPada
